@@ -30,7 +30,7 @@ Currently, I am an fourth-year undergraduate in [Weiyang College](https://www.ts
 
 During my undergraduate study, I am fortunate to be mentored by Prof. [Huazhe Xu](http://hxu.rocks/). I was also a research visiting student at [MIT-IBM Watson AI Lab](https://mitibmwatsonailab.mit.edu/) and [Umass Amherst](https://www.umass.edu/) under the supervision of Prof. [Chuang Gan](ttps://people.csail.mit.edu/ganchuang/). I am now an intern directed by Dr. [Jiangmiao Pang](https://oceanpang.github.io/) at [OpenRobotLab](https://github.com/OpenRobotLab), [Shanghai AI Laboratory](https://www.shlab.org.cn/).
 
-I'm a passionate fan of LOL and NBA, especially of James Harden and The Shy. In my free time, I also enjoy playing basketball, practicing Chinese calligraphy, and painting.
+I'm a passionate fan of LOL and NBA, especially of The Shy and James Harden. In free time, I also enjoy playing basketball, practicing Chinese calligraphy, and painting.
 
 
 
