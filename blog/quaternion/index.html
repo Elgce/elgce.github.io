@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+
+<html lang="en-us"><head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+        integrity="sha256-4+XzXVhsDmqanXGHaHvgh1gMQKX40OUvDEBTu8JcmNs=" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
+        integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo&family=Noto+Serif+JP&family=Cormorant+Garamond&family=Libre+Baskerville&family=Source+Serif+Pro&family=Crimson+Text&family=Inter&family=Crimson+Pro&family=Literata&family=Ubuntu+Mono&family=Inter&family=Roboto">
+    <link rel="stylesheet" type="text/css" href="/css/style.css">
+
+    
+    
+
+    <title>Qingwei Ben | Note of Quaternion</title>
+
+
+    
+
+</head><body class="container d-flex flex-column min-vh-100">
+
+<div class="blog_nav_bar secondary_font ">
+    
+    
+    <a class="navbar-brand" href="/">about</a>
+    
+    
+    
+    <a class="navbar-brand" href="/blog">« all posts</a>
+    
+    
+</div>
+
+
+
+<h3>
+    <a class="title" href="/blog/quaternion/">Note of Quaternion</a>
+</h3>
+
+<div class="reading_time secondary_font text-muted ">
+    <span>
+        Apr 20 2024 · 6 min read
+    </span>
+
+</div>
+
+
+
+
+<div class="tags_navigation">
+    
+    <a class="tag" href="/tags/Robotics/">#Robotics</a>
+    
+    <a class="tag" href="/tags/Quaternion/">#Quaternion</a>
+    
+</div>
+
+
+<p>link: <a href="https://krasjet.github.io/quaternion/quaternion.pdf">https://krasjet.github.io/quaternion/quaternion.pdf</a></p>
+<h1 id="复数">复数</h1>
+<p>设两个复数分别写作$z_1=a+bi, z_2=c+di$，有：
+$$
+z_1\cdot z_2=(ac-bd)+(bc+ad)i=\begin{bmatrix} a &amp; -b \ b &amp; a \ \end{bmatrix}\begin{bmatrix}c\d\end{bmatrix}
+$$
+由此可以写出一个复数$z_1$的矩阵形式为$\begin{bmatrix} a &amp; -b \ b &amp; a \ \end{bmatrix} = \sqrt{a^2+b^2}\begin{bmatrix} \cos\theta &amp; -\sin\theta \ \sin\theta &amp; \cos\theta \ \end{bmatrix}$
+其中$||z_1||=\sqrt{a^2+b^2}$，与$Re$夹角是$\theta$。
+复数的极坐标形式：$z=re^{i\theta}$ ($Euler Equation: e^{i\theta}=\cos\theta+i\sin\theta$)
+复数的相乘遵循交换律：$z_1z_2=z_2z_1$</p>
+<h1 id="三维空间的旋转">三维空间的旋转</h1>
+<p>假设$\vec{v}$绕着$\vec{u}$旋转$\theta$，其中$\vec{u}$是单位向量表示的旋转轴，$\vec{v}=\vec{v_\parallel}+\vec{v_\perp}$
+定义$\vec{w}=\vec{u}\times\vec{v_\perp}$
+那么旋转以后的$\vec{v_\perp}&rsquo;=\cos\theta\vec{v_\perp}+\sin\theta\vec{w}$
+由此得到$\vec{v}$绕着$\vec{u}$旋转后的表示是：
+$$
+\vec{v}&rsquo;=\vec{v_\parallel}+\cos\theta\vec{v_\perp}+\sin\theta(\vec{u}\times\vec{v_\perp})
+$$
+叉乘遵循分配律，$\vec{u}\times\vec{v_\perp}=\vec{u}\times(\vec{v}-\vec{v_\parallel})=\vec{u}\times\vec{v}$
+$$
+\mathbf{v}&rsquo; = \cos(\theta)\mathbf{v} + (1 - \cos(\theta))(\mathbf{u} \cdot \mathbf{v})\mathbf{u} + \sin(\theta)(\mathbf{u} \times \mathbf{v})
+$$</p>
+<h1 id="四元数">四元数</h1>
+<p>$q=a+bi+cj+dk,i^2=j^2=z^2=ijk=-1$
+四元数的乘法不符合交换律
+同复数，有如下公式：
+$$
+q_1q_2=\begin{bmatrix}a&amp;-b&amp;-c&amp;-d\ b&amp;a&amp;-d&amp;c\ c &amp;d &amp;a &amp;-b\ d&amp;-c&amp;b&amp;a\end{bmatrix}\begin{bmatrix}e\ f \ g\ h \end{bmatrix}
+$$
+由于不符合交换律，所以右乘结果不一样：
+$$
+q_2q_1=\begin{bmatrix}a&amp;-b&amp;-c&amp;-d\ b&amp;a&amp;d&amp;-c\ c &amp;-d &amp;a &amp;b\ d&amp;c&amp;-b&amp;a\end{bmatrix}\begin{bmatrix}e\ f \ g\ h \end{bmatrix}
+$$
+（$Grathmann$积）设任意四元数 $q_1=[s, \mathbf{v}],q_2 = [t, \mathbf{u}]$，$q_1q_2$的结果是
+$$
+q_1q_2 = [st - \mathbf{v} \cdot \mathbf{u}, st\mathbf{u} + tv\mathbf{v} + \mathbf{v} \times \mathbf{u}]
+$$
+四元数的逆：$q^{-1}=\frac{q*}{||q||^2}$
+纯四元数有：$q_1q_2=[-\vec{v}\cdot\vec{u}, \vec{v}\times\vec{u}]$</p>
+<h1 id="四元数与3d旋转">四元数与3D旋转</h1>
+<p>首先使用纯四元数表示《三维空间的旋转》部分得到的公式中的所有向量。
+$\vec{v_\perp}&rsquo;=\cos\theta\vec{v_\perp}+\sin\theta(\vec{u}\times\vec{v_\perp})$
+结合纯四元数的结果可以得到$uv_\perp=\vec{u}\times\vec{v_\perp}$（纯四元数按照标量写）
+那么有$v_\perp&rsquo;=(\cos\theta+\sin\theta u)v_\perp=qv_\perp$
+$$q=\cos\theta+\sin\theta u=[\cos\theta, \vec{0}]+[0, \sin\theta\vec{u}]=[\cos\theta, \sin\theta\vec{u}]$$
+$v&rsquo;=v_\parallel+qv_\perp$
+令$p^2=q$，那么有$p=[\cos(\theta/2), sin(\theta/2)\vec{u}]$，可以得到$v&rsquo;=pp^<em>v_\parallel+ppv_\perp$。根据引理有$v&rsquo;=pv_\parallel^</em>+pv_\perp p^<em>=pvp^</em>=pvp^{-1}$。
+求$q=[a,\vec{b}]$旋转轴以及角度的方法：
+$$
+\theta=2\arccos(a)
+$$
+$$
+\vec{u}=\frac{b}{sin(\theta)}
+$$
+<strong>四元数与3D旋转是一个2对1满射同态</strong></p>
+<h1 id="指数形式">指数形式</h1>
+<p>$q=[\cos\theta,\sin\theta\vec{u}]$可以表示为$e^{u\theta}$</p>
+<h1 id="四元数插值">四元数插值</h1>
+<p>本部分留待后续补充（基本就是用不同的数值分析插值方法）</p>
+<h1 id="欧拉角">欧拉角</h1>
+<p>泰特布莱恩角：$(x,y,z)$
+欧拉角：$(a,b,a&rsquo;)$
+问题：存在万向节死锁，丢失一个自由度</p>
+
+
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font">
+    <span class="text-muted">Copyright (c) 2024, ,
+        <a class="text-muted" href="https://github.com/hadisinaee/avicenna" target="_blank"> created by Avicenna
+            (MIT)</a>
+    </span>
+</footer><script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-ho+j7jyWK8fNQe+A12Hb8AhRq26LrZ/JpcUGGOn+Y7RsweNrtN/tE3MoK7ZeZDyx"
+    crossorigin="anonymous"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.js"></script>
+<script>
+    feather.replace()
+</script></body>
+
+</html>

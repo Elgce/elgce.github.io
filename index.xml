@@ -6,35 +6,14 @@
     <description>Recent content on Qingwei Ben</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Mon, 11 Jan 2021 16:12:29 -0700</lastBuildDate>
+    <lastBuildDate>Sat, 20 Apr 2024 00:00:00 +0000</lastBuildDate>
     <atom:link href="http://localhost:1313/index.xml" rel="self" type="application/rss+xml" />
     <item>
-      <title>Picture Your ML On Top. Read This And Make It So</title>
-      <link>http://localhost:1313/blog/blog4/</link>
-      <pubDate>Mon, 11 Jan 2021 16:12:29 -0700</pubDate>
-      <guid>http://localhost:1313/blog/blog4/</guid>
-      <description>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla eget dui justo. Sed bibendum sollicitudin neque, et iaculis ligula dapibus eget. Etiam faucibus augue non posuere blandit. Phasellus ex ex, ultricies quis eleifend vel, imperdiet a felis. Sed ipsum velit, ullamcorper nec lacus fermentum, ullamcorper sagittis libero. Pellentesque hendrerit quam eget nunc ullamcorper mattis. Etiam sed nisi ac ipsum semper interdum. Nunc vulputate vitae nibh vitae convallis. Cras in ante arcu.</description>
-    </item>
-    <item>
-      <title>5 Best Ways To Sell ML</title>
-      <link>http://localhost:1313/blog/blog3/</link>
-      <pubDate>Tue, 12 May 2020 16:11:56 -0700</pubDate>
-      <guid>http://localhost:1313/blog/blog3/</guid>
-      <description>Pellentesque dapibus nec velit sit amet venenatis. Nam mauris elit, feugiat vitae massa a, scelerisque pretium justo. Aliquam eu quam suscipit, gravida dolor auctor, porttitor risus. Integer at dui blandit, scelerisque nunc vel, gravida neque. Vivamus at nisi lacinia, bibendum ipsum a, dignissim nibh. Ut urna eros, consequat ut tristique id, egestas non lectus. Cras placerat condimentum orci, et cursus tortor tempus in. Aenean sodales leo sed scelerisque molestie. Duis tempus lectus sed velit fermentum, quis auctor dolor mattis.</description>
-    </item>
-    <item>
-      <title>7 Ways To Keep Your ML Growing Without Burning The Midnight Oil</title>
-      <link>http://localhost:1313/blog/blog2/</link>
-      <pubDate>Fri, 07 Jun 2019 16:04:19 -0700</pubDate>
-      <guid>http://localhost:1313/blog/blog2/</guid>
-      <description>Nulla fermentum blandit metus sit amet congue. Nunc hendrerit eleifend magna, quis posuere nulla eleifend eget. Pellentesque quis nulla eu massa facilisis sodales in quis urna. Vestibulum aliquam metus id risus volutpat iaculis. Sed malesuada nunc cursus risus consectetur suscipit. Quisque sit amet leo mattis, sagittis purus eu, tristique sapien. Vestibulum gravida dictum aliquam. Etiam magna neque, tempus et aliquet sed, sollicitudin sed tellus. Sed euismod, lorem eget aliquet ultrices, nisl eros hendrerit nunc, in gravida augue leo id diam.</description>
-    </item>
-    <item>
-      <title>Secrets To ML – Even In This Down Economy</title>
-      <link>http://localhost:1313/blog/blog1/</link>
-      <pubDate>Fri, 18 May 2018 00:00:00 +0000</pubDate>
-      <guid>http://localhost:1313/blog/blog1/</guid>
-      <description>Nulla fermentum blandit metus sit amet congue. Nunc hendrerit eleifend magna, quis posuere nulla eleifend eget. Pellentesque quis nulla eu massa facilisis sodales in quis urna. Vestibulum aliquam metus id risus volutpat iaculis. Sed malesuada nunc cursus risus consectetur suscipit. Quisque sit amet leo mattis, sagittis purus eu, tristique sapien. Vestibulum gravida dictum aliquam. Etiam magna neque, tempus et aliquet sed, sollicitudin sed tellus. Sed euismod, lorem eget aliquet ultrices, nisl eros hendrerit nunc, in gravida augue leo id diam.</description>
+      <title>Note of Quaternion</title>
+      <link>http://localhost:1313/blog/quaternion/</link>
+      <pubDate>Sat, 20 Apr 2024 00:00:00 +0000</pubDate>
+      <guid>http://localhost:1313/blog/quaternion/</guid>
+      <description>link: https://krasjet.github.io/quaternion/quaternion.pdf&#xA;复数 设两个复数分别写作$z_1=a+bi, z_2=c+di$，有： $$ z_1\cdot z_2=(ac-bd)+(bc+ad)i=\begin{bmatrix} a &amp;amp; -b \ b &amp;amp; a \ \end{bmatrix}\begin{bmatrix}c\d\end{bmatrix} $$ 由此可以写出一个复数$z_1$的矩阵形式为$\begin{bmatrix} a &amp;amp; -b \ b &amp;amp; a \ \end{bmatrix} = \sqrt{a^2+b^2}\begin{bmatrix} \cos\theta &amp;amp; -\sin\theta \ \sin\theta &amp;amp; \cos\theta \ \end{bmatrix}$ 其中$||z_1||=\sqrt{a^2+b^2}$，与$Re$夹角是$\theta$。 复数的极坐标形式：$z=re^{i\theta}$ ($Euler Equation: e^{i\theta}=\cos\theta+i\sin\theta$) 复数的相乘遵循交换律：$z_1z_2=z_2z_1$&#xA;三维空间的旋转 假设$\vec{v}$绕着$\vec{u}$旋转$\theta$，其中$\vec{u}$是单位向量表示的旋转轴，$\vec{v}=\vec{v_\parallel}+\vec{v_\perp}$ 定义$\vec{w}=\vec{u}\times\vec{v_\perp}$ 那么旋转以后的$\vec{v_\perp}&amp;rsquo;=\cos\theta\vec{v_\perp}+\sin\theta\vec{w}$ 由此得到$\vec{v}$绕着$\vec{u}$旋转后的表示是： $$ \vec{v}&amp;rsquo;=\vec{v_\parallel}+\cos\theta\vec{v_\perp}+\sin\theta(\vec{u}\times\vec{v_\perp}) $$ 叉乘遵循分配律，$\vec{u}\times\vec{v_\perp}=\vec{u}\times(\vec{v}-\vec{v_\parallel})=\vec{u}\times\vec{v}$ $$ \mathbf{v}&amp;rsquo; = \cos(\theta)\mathbf{v} + (1 - \cos(\theta))(\mathbf{u} \cdot \mathbf{v})\mathbf{u} + \sin(\theta)(\mathbf{u} \times \mathbf{v}) $$&#xA;四元数 $q=a+bi+cj+dk,i^2=j^2=z^2=ijk=-1$ 四元数的乘法不符合交换律 同复数，有如下公式： $$ q_1q_2=\begin{bmatrix}a&amp;amp;-b&amp;amp;-c&amp;amp;-d\ b&amp;amp;a&amp;amp;-d&amp;amp;c\ c &amp;amp;d &amp;amp;a &amp;amp;-b\ d&amp;amp;-c&amp;amp;b&amp;amp;a\end{bmatrix}\begin{bmatrix}e\ f \ g\ h \end{bmatrix} $$ 由于不符合交换律，所以右乘结果不一样： $$ q_2q_1=\begin{bmatrix}a&amp;amp;-b&amp;amp;-c&amp;amp;-d\ b&amp;amp;a&amp;amp;d&amp;amp;-c\ c &amp;amp;-d &amp;amp;a &amp;amp;b\ d&amp;amp;c&amp;amp;-b&amp;amp;a\end{bmatrix}\begin{bmatrix}e\ f \ g\ h \end{bmatrix} $$ （$Grathmann$积）设任意四元数 $q_1=[s, \mathbf{v}],q_2 = [t, \mathbf{u}]$，$q_1q_2$的结果是 $$ q_1q_2 = [st - \mathbf{v} \cdot \mathbf{u}, st\mathbf{u} + tv\mathbf{v} + \mathbf{v} \times \mathbf{u}] $$ 四元数的逆：$q^{-1}=\frac{q*}{||q||^2}$ 纯四元数有：$q_1q_2=[-\vec{v}\cdot\vec{u}, \vec{v}\times\vec{u}]$</description>
     </item>
   </channel>
 </rss>
