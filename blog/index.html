@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<html lang="en-us"><head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+<html lang="en-us"><head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
@@ -15,6 +15,18 @@
     <link rel="stylesheet" type="text/css" href="/css/style.css">
 
     
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    
+
+    
     
 
     <title>Qingwei Ben | Blogs</title>
@@ -22,77 +34,49 @@
 
     
 
-</head><body class="container d-flex flex-column min-vh-100">
+</head>
+<body class="container d-flex flex-column min-vh-100">
 
-<div class="blog_nav_bar secondary_font ">
-    
-    
-    <a class="navbar-brand" href="/">about</a>
-    
-    
-</div>
+<main class="blog-shell">
+    <nav class="home-nav blog-topbar" aria-label="Blog navigation">
+        <a class="home-mark" href="/">Qingwei Ben</a>
+        <div class="home-nav__links">
+            <a href="/">Home</a>
+            <a href="/#research">Research</a>
+        </div>
+    </nav>
 
+    <header class="blog-hero">
+        <p class="eyebrow">Notes / essays / technical scratchpad</p>
+        <h1>Blog</h1>
+        <p>Research notes, robotics math, and occasional writing. Drop a Markdown file into <code>content/blog/</code> and it will appear here automatically.</p>
+    </header>
 
-
-
-<h1>All Posts</h1>
-
-
-
-<p>
-    
-    
-
-<h3>
-    <a class="title" href="/blog/quaternion/">Note of Quaternion</a>
-</h3>
-
-<div class="reading_time secondary_font text-muted ">
-    <span>
-        Apr 20 2024 · 6 min read
-    </span>
-
-</div>
-
-
-
-
-<div class="tags_navigation">
-    
-    <a class="tag" href="/tags/Robotics/">#Robotics</a>
-    
-    <a class="tag" href="/tags/Quaternion/">#Quaternion</a>
-    
-</div>
-
-
-    <div><p>link: <a href="https://krasjet.github.io/quaternion/quaternion.pdf">https://krasjet.github.io/quaternion/quaternion.pdf</a></p>
-<h1 id="复数">复数</h1>
-<p>设两个复数分别写作$z_1=a+bi, z_2=c+di$，有：
-$$
-z_1\cdot z_2=(ac-bd)+(bc+ad)i=\begin{bmatrix} a &amp; -b \ b &amp; a \ \end{bmatrix}\begin{bmatrix}c\d\end{bmatrix}
-$$
-由此可以写出一个复数$z_1$的矩阵形式为$\begin{bmatrix} a &amp; -b \ b &amp; a \ \end{bmatrix} = \sqrt{a^2+b^2}\begin{bmatrix} \cos\theta &amp; -\sin\theta \ \sin\theta &amp; \cos\theta \ \end{bmatrix}$
-其中$||z_1||=\sqrt{a^2+b^2}$，与$Re$夹角是$\theta$。
-复数的极坐标形式：$z=re^{i\theta}$ ($Euler Equation: …</p></div>
-
-
-
-<div class="read_more">
-    <a href="/blog/quaternion/">Read More…</a>
-</div>
-
-
-
-    
-</p>
-
-
-
-
-
-
-
+    <section class="blog-grid" aria-label="Blog posts">
+        
+        <article class="blog-card">
+            <a class="blog-card__main" href="/blog/quaternion/">
+                <div class="blog-card__meta">
+                    <time>Apr 20, 2024</time>
+                    <span>1 min read</span>
+                </div>
+                <h2>Note of Quaternion</h2>
+                <p>link: https://krasjet.github.io/quaternion/quaternion.pdf
+复数 设两个复数分别写作$z_1=a+bi, z_2=c+di$，有： $$ z_1\cdot z_2=(ac-bd)+(bc+ad)i=\begin{bmatrix} a &amp; -b \ b &amp; a \ …</p>
+            </a>
+            
+            <div class="blog-card__tags">
+                
+                <a href="/tags/robotics/">#Robotics</a>
+                
+                <a href="/tags/quaternion/">#Quaternion</a>
+                
+            </div>
+            
+        </article>
+        
+    </section>
+</main>
 <footer class="mt-auto d-flex justify-content-center text-muted small secondary_font">
     <span class="text-muted">Copyright (c) 2026, Qingwei Ben,
         <a class="text-muted" href="https://github.com/hadisinaee/avicenna" target="_blank"> created by Avicenna

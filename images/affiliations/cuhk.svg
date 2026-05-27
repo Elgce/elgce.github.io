@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <rect width="96" height="96" rx="22" fill="#5c2d91"/>
+  <path d="M48 19c14 10 24 19 24 33 0 15-11 25-24 25S24 67 24 52c0-14 10-23 24-33z" fill="#d6b46a"/>
+  <text x="48" y="57" text-anchor="middle" font-family="Arial, sans-serif" font-size="16" font-weight="800" fill="#fff">CUHK</text>
+</svg>
