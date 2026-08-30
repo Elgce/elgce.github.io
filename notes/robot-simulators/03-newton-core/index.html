@@ -7,14 +7,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
     <link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <title>Qingwei Ben | Newton Physics 核心逻辑</title>
 </head>
 <body class="container d-flex flex-column min-vh-100">
 <main class="blog-shell">
 <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
-<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">03 / 05 · 初稿待学习</span><p class="eyebrow">资料快照：Newton Physics v1.5.1</p><h1>Newton：Model、State 与可插拔 Solver</h1><p class="learning-header__lead">Newton 是建立在 NVIDIA Warp 上的开源 GPU 物理引擎。它把资产导入、模型/状态存储、碰撞生成和 solver 拆成明确组件，使机器人学习既能复用 MuJoCo Warp，也能替换数值方法或直接对 Warp array 做批处理。</p></header>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">03 / 05 · 第一轮精讲</span><p class="eyebrow">资料快照：Newton Physics v1.5.1</p><h1>Newton：Model、State 与可插拔 Solver</h1><p class="learning-header__lead">Newton 是建立在 NVIDIA Warp 上的开源 GPU 物理引擎。它把资产导入、模型/状态存储、碰撞生成和 solver 拆成明确组件，使机器人学习既能复用 MuJoCo Warp，也能替换数值方法或直接对 Warp array 做批处理。</p></header>
 <div class="post-content learning-article">
 <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>Newton 的核心抽象是：<code>Model</code> 保存结构，<code>State</code> 保存动态量，<code>Control</code> 保存输入，<code>Contacts</code> 保存当前接触；碰撞管线产生 contacts，选定的 solver 再把 state 推进一步。</strong></p></div>
+<div class="learning-route"><span>Builder / import</span><b>→</b><span>finalize Model</span><b>→</b><span>allocate State/Control</span><b>→</b><span>collide</span><b>→</b><span>solver.step</span><b>→</b><span>swap state</span></div>
+<figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>Immutable-ish</small><strong>Model</strong></div><span class="process-arrow">+</span><div class="process-step"><small>Per-step</small><strong>State + Control</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Pipeline</small><strong>Contacts</strong></div><span class="process-arrow">→</span><div class="process-step"><small>可替换</small><strong>Solver → State next</strong></div></div><figcaption>碰撞与 solver 分离，使同一 Model/State 接口可比较不同数值方法。</figcaption></figure>
 
 <h2>1. 先消除三个命名歧义</h2>
 <table><thead><tr><th>名字</th><th>是什么</th><th>提供什么</th></tr></thead><tbody>
@@ -65,6 +68,11 @@ State A + Control + Contacts ──► selected Solver ──► State B</code><
 <ul><li><strong>Newton standalone</strong>：直接运行 physics + 轻量 viewer/export，适合 solver 开发和无 Kit 的训练。</li><li><strong>Isaac Lab + Newton</strong>：复用 task/env/robot-learning 接口，可 kit-less，也可接不同 visualizer/renderer。</li><li><strong>Isaac Sim + Newton backend</strong>：USD、Fabric、RTX、ROS 仍由 Isaac Sim 平台提供，Newton 负责物理；6.0.1 时仍属实验性路径。</li></ul>
 <p>因此“Isaac Sim vs Newton”并不总是二选一；Newton 可以成为 Isaac 生态中的 physics backend。</p>
 
+<h2>8. 四个 Newton 数据量级</h2>
+<div class="numeric-example"><p class="numeric-example__title">例 1：batched joints</p><p>8192 个环境、每个 12 DoF，q 与 qd 各有 $8192×12=98{,}304$ 个 fp32；两者合计约 $98{,}304×2×4≈0.75$ MiB。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 2：contact capacity</p><p>每环境最多 32 contacts、4096 环境，capacity 需 131,072。若实际峰值 40/环境而 buffer 仍 32，最坏每环境丢 8 个接触，不能只看程序是否继续运行。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 3：substep 调用</p><p>Control 50 Hz、physics 200 Hz，每个 action 调 4 次 collide + solver。每秒 50 个控制步对应 200 次物理推进。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 4：反向存储</p><p>可微 rollout 100 steps、每步需保存 2 MiB 中间量，朴素 tape 至少约 200 MiB；batch 扩 8 倍便约 1.6 GiB，还未计梯度和模型。</p></div>
 <div class="concept-callout"><strong>常见误解：</strong><p>Newton 的目标不是“用一个 solver 取代所有引擎”，而是用共同数据模型和 Warp 执行层容纳不同 solver。数值行为是否适合任务，仍由选中的 solver、contact pipeline 和参数共同决定。</p></div>
 <section class="learning-check"><h3>自测</h3>
 <details><summary>1. Model 与 State 为什么要分开？</summary><p>Model 保存相对静态的结构和参数，可被大量环境共享；State 保存每个 world 每一步变化的动态量，便于批处理和双缓冲。</p></details>
