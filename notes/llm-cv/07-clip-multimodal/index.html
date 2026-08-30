@@ -10,9 +10,11 @@
 </head>
 <body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
     <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
-    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">07 / 14 · 初稿待学习</span><p class="eyebrow">跨模态对齐</p><h1>CLIP 与多模态模型</h1><p class="learning-header__lead">CLIP 的突破不是让图片“变成文字”，而是让图像和文本编码器学会在同一个相似度空间里找配对。</p></header>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">07 / 14 · 第一轮精讲</span><p class="eyebrow">跨模态对齐</p><h1>CLIP 与多模态模型</h1><p class="learning-header__lead">CLIP 的突破不是让图片“变成文字”，而是让图像和文本编码器学会在同一个相似度空间里找配对。</p></header>
     <div class="post-content learning-article">
         <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>CLIP 用 batch 内图文配对做双向检索式训练；VLM 再把视觉特征投影成 LLM 能消费的 token，使模型不仅比较相似度，还能按语言自回归地产生答案。</strong></p></div>
+        <div class="learning-route"><span>图文 pair</span><b>→</b><span>双 encoder</span><b>→</b><span>L2 normalize</span><b>→</b><span>B×B 相似度</span><b>→</b><span>双向 CE</span><b>→</b><span>检索 / VLM connector</span></div>
+        <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>图片支路</small><strong>image → $v_i/\|v_i\|$</strong></div><span class="process-arrow">↘</span><div class="process-step"><small>共同计算</small><strong>$S=VT^\top/\tau$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>监督</small><strong>对角线为正确配对</strong></div><span class="process-arrow">↖</span><div class="process-step"><small>文字支路</small><strong>text → $t_i/\|t_i\|$</strong></div></div><figcaption>归一化后点积就是 cosine similarity；同一个矩阵按行做 image→text，按列做 text→image。</figcaption></figure>
 
         <h2>1. 为什么固定类别监督不够？</h2>
         <p>传统分类器最后一层只有预先定义的类别，例如 1000 个 ImageNet 类。想识别新概念，通常需要新增标注和重新训练 head。互联网图文对虽然噪声大，却天然包含开放词汇描述；CLIP 把它们当作可扩展监督。</p>
@@ -26,6 +28,7 @@ image 1         ✓         ×        ×
 image 2         ×         ✓        ×
 image 3         ×         ×        ✓</code></pre>
         <p>模型不需要生成 caption，只需要让正确图文相似度高于错误配对。因为图像和文本各自只编码一次，双编码器很适合大规模检索。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 1：手算 2×2 CLIP loss</p><p>设归一化后的相似度矩阵为 $\begin{bmatrix}0.8&0.2\\0.1&0.7\end{bmatrix}$，为便于计算取 $\tau=1$。第一张图对应文本 1：</p><div class="calculation-stack"><p>$p(t_1|v_1)=e^{0.8}/(e^{0.8}+e^{0.2})=2.226/(2.226+1.221)=0.646$。</p><p>第 1 行 loss $=-\ln0.646=0.437$。</p><p>第二行正确概率 $e^{0.7}/(e^{0.1}+e^{0.7})=0.646$，也是 0.437。</p></div><p>再按列算 text→image 后取平均，形成对称 loss。</p></div>
 
         <h2>3. Zero-shot classification 怎么发生？</h2>
         <p>给定类别 <code>cat</code>、<code>dog</code>，先把它们写成 prompt：</p>
@@ -33,6 +36,7 @@ image 3         ×         ×        ✓</code></pre>
 "a photo of a dog"</code></pre>
         <p>文本编码器把每个类别描述变成向量；图片编码一次后，与所有类别向量比较相似度，softmax 后选最大项。这等于把分类 head 的固定权重换成“由自然语言动态生成的类别原型”。</p>
         <p>Prompt wording 会影响结果，因此常对多种模板和同义描述做 ensemble。Zero-shot 也不意味着从没见过相似概念；它表示没有为该 benchmark 的固定类别专门训练分类 head。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 2：zero-shot 两类分类</p><p>图片向量与 <code>a photo of a cat</code>、<code>a photo of a dog</code> 的 cosine similarity 为 0.75、0.55。若 logit scale 为 10，logits 为 $[7.5,5.5]$：</p><div class="equation">$$p(\text{cat})={e^{7.5}\over e^{7.5}+e^{5.5}}={e^2\over e^2+1}\approx0.881$$</div><p>类别文本就是动态 classifier weights；换 prompt 会改变文本向量和最终概率。</p></div>
 
         <h2>4. CLIP 学到的空间有什么边界？</h2>
         <ul>
@@ -53,20 +57,24 @@ text  → tokenizer      → LLM token space → generated answer</code></pre>
             <li><strong>LLM</strong> 通过 self-attention 或 cross-attention 融合视觉与文字，并自回归生成输出。</li>
         </ul>
         <p>训练通常先做图文对齐/描述，再做多模态 instruction tuning。哪些模块冻结、哪些联合训练，决定成本和视觉表示是否会为语言任务重塑。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 3：线性 connector 的一次投影</p><p>视觉 token $v=[1,2]$，LLM hidden width 为 3；令 projector $W=\begin{bmatrix}1&0&-1\\0&2&1\end{bmatrix}$：</p><div class="equation">$$vW=[1,2]\begin{bmatrix}1&0&-1\\0&2&1\end{bmatrix}=[1,4,1]$$</div><p>维度变得可与 3 维文字 embedding 拼接，但这不意味着向量已经变成某个自然语言单词。</p></div>
 
         <h2>6. “统一成 token”具体统一了什么？</h2>
         <p>它不是说图片真的变成自然语言单词，而是不同模态最终都形成固定宽度向量序列，进入相同 attention 计算。统一的是<strong>计算接口</strong>：</p>
         <div class="equation">$$[\text{visual tokens};\text{text tokens};\text{action tokens}]\rightarrow \text{Transformer}$$</div>
         <p>不同模态的 tokenizer/encoder、位置结构和训练 loss 仍然可以完全不同。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 4：视觉 token 压缩为何重要</p><p>一张图有 576 patch tokens，prompt 128 tokens，总长 704，attention score 约 $704^2=495{,}616$。若 resampler 把视觉压成 64 tokens，总长 192，score 约 $36{,}864$，约少 13.4 倍。压缩节省计算，但可能损失细粒度空间信息。</p></div>
 
         <h2>7. 与机器人模型的关系</h2>
         <p>VLA 模型常把多视角图像、语言任务、本体状态编码成 token，再预测动作。语言提供开放任务接口，视觉提供环境证据，动作 head 或 action tokenizer 把表示接回控制空间。关键挑战不只是“看懂图”：还要保持时序、3D 几何、动作精度和闭环延迟。</p>
         <div class="concept-callout"><strong>常见误解：</strong><p>CLIP 本身不是会对话的 VLM。它学习图文相似度；能生成解释和动作通常需要额外 connector、语言模型和后训练。</p></div>
 
-        <section class="learning-check"><h3>自测</h3>
+        <section class="learning-check"><h3>自测：先算后展开</h3>
             <details><summary>1. CLIP 的一行图片在相似度矩阵中做什么分类？</summary><p>它要在 batch 内所有文本中把自己的配对文本分类为正确项；text-to-image 方向同理。</p></details>
             <details><summary>2. Zero-shot classifier 的“类别权重”从哪里来？</summary><p>由 text encoder 对类别 prompt 编码得到，而不是为固定类别单独训练的线性层参数。</p></details>
             <details><summary>3. VLM connector 为什么存在？</summary><p>视觉特征与 LLM token embedding 在维度、数量和统计分布上不同，需要投影/压缩成语言模型可消费的表示。</p></details>
+            <details><summary>4. Batch size 为 256 时相似度矩阵有多少项？</summary><p>$256^2=65{,}536$ 项；每行有 1 个 positive 和 255 个 batch 内候选。</p></details>
+            <details><summary>5. 两个单位向量点积为 0，cosine similarity 是多少？</summary><p>0，表示它们正交；不是负相关，也不直接等同于语义完全无关。</p></details>
         </section>
         <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2103.00020">Learning Transferable Visual Models From Natural Language Supervision (CLIP)</a>。</p></div>
         <nav class="article-series-nav"><a href="/notes/llm-cv/06-self-supervised-vision/">← 上一篇：自监督视觉</a><a href="/notes/llm-cv/08-detection-segmentation/">下一篇：检测与分割 →</a></nav>
