@@ -16,13 +16,22 @@
     <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
     <article class="post-shell">
         <header class="post-header learning-header">
-            <span class="draft-status">03 / 14 · 初稿待学习</span>
+            <span class="draft-status">03 / 14 · 第一轮精讲</span>
             <p class="eyebrow">预训练范式</p>
             <h1>GPT、BERT 与 T5</h1>
             <p class="learning-header__lead">它们并不是三个毫无关系的模型，而是 Transformer 在信息可见范围、训练目标和输入输出接口上的三种关键选择。</p>
         </header>
         <div class="post-content learning-article">
             <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>BERT 擅长把完整输入编码成上下文表示，GPT 擅长从左到右生成，T5 用 encoder 理解输入、decoder 自回归地产生输出。</strong></p></div>
+
+            <div class="learning-route"><span>同一组 token</span><b>→</b><span>选择可见范围</span><b>→</b><span>计算 hidden states</span><b>→</b><span>选择 loss 位置</span><b>→</b><span>得到表示或生成</span></div>
+
+            <h2>0. 先看三条完整计算路径</h2>
+            <figure class="learning-figure"><div class="process-flow">
+                <div class="process-step"><small>BERT</small><strong>双向 self-attention → MLM head</strong></div><span class="process-arrow">|</span>
+                <div class="process-step"><small>GPT</small><strong>causal self-attention → next-token head</strong></div><span class="process-arrow">|</span>
+                <div class="process-step"><small>T5</small><strong>双向 encoder → cross-attention → causal decoder</strong></div>
+            </div><figcaption>核心组件都来自 Transformer；真正改变训练信号和推理接口的是 attention mask、是否分 encoder/decoder，以及在哪些位置计算 loss。</figcaption></figure>
 
             <h2>1. 三种结构先看信息流</h2>
             <table>
@@ -35,6 +44,11 @@
             </table>
             <p>“encoder”和“decoder”不是由有没有文字输出决定的，而是由 block 中的 attention 连接方式决定。三者都使用 Transformer 组件，但 mask 和模块连接不同。</p>
 
+            <div class="numeric-example"><p class="numeric-example__title">例 1：长度 4 时，三种 self-attention 可见多少格？</p>
+                <div class="calculation-stack"><p>BERT：$4\times4=16$ 格全部可见。</p><p>GPT：下三角可见格数 $1+2+3+4=10$。</p><p>T5 encoder：16 格；若 decoder target 长 3，decoder causal self-attention 有 $1+2+3=6$ 格，另有 $3\times4=12$ 个 decoder→encoder cross-attention 分数。</p></div>
+                <p>因此“同样长度的 token”在三种架构里经过的连接并不相同。</p>
+            </div>
+
             <h2>2. BERT：先遮住，再利用两边恢复</h2>
             <p>BERT 把部分输入 token 替换或隐藏，让 encoder 根据左右两边上下文恢复它们。例如：</p>
             <pre><code>the robot [MASK] the door
@@ -42,6 +56,12 @@
          opens</code></pre>
             <p>因为所有未遮位置彼此可见，<code>bank</code> 在 “river bank” 和 “bank account” 中会形成不同的上下文表示。这类表示很适合回答“整段输入表达了什么”“每个 token 属于什么类别”“两段文本是否相似”。</p>
             <p>但 BERT 预训练不是按从左到右生成完整句子；若直接拿它连续生成，每一步的输入分布与 masked pretraining 并不一致。它的优势是理解和编码，不是天然的自由生成接口。</p>
+
+            <div class="numeric-example"><p class="numeric-example__title">例 2：BERT 的一个 masked-token loss</p>
+                <p>句子 <code>robot [MASK] door</code> 中，正确 token 是 <code>opens</code>。假设 MLM head 给三个候选 logits：</p>
+                <table class="calculation-table"><thead><tr><th>候选</th><th>opens</th><th>closes</th><th>blue</th></tr></thead><tbody><tr><th>logit</th><td>2</td><td>1</td><td>0</td></tr><tr><th>$e^z$</th><td>7.389</td><td>2.718</td><td>1</td></tr><tr><th>概率</th><td>0.665</td><td>0.245</td><td>0.090</td></tr></tbody></table>
+                <p>$p(\text{opens})=7.389/11.107=0.665$，该位置 loss 为 $-\ln0.665\approx0.408$。未选作预测目标的位置通常不贡献 MLM loss。</p>
+            </div>
 
             <h2>3. GPT：把所有任务都写进同一条序列</h2>
             <p>GPT 使用 decoder-only causal mask，优化：</p>
@@ -52,11 +72,24 @@ Input: The robot opens the door.
 Output: 机器人打开门。</code></pre>
             <p>同一个输出头始终只做 next-token prediction。分类可以生成标签，问答可以生成答案，工具调用可以生成结构化参数。统一接口减少了为每个任务设计专用 head 的需要。</p>
 
+            <div class="numeric-example"><p class="numeric-example__title">例 3：GPT 一次 forward 同时得到三道 next-token 题</p>
+                <p>序列 <code>[BOS, I, run, EOS]</code> 产生输入 <code>[BOS, I, run]</code> 与标签 <code>[I, run, EOS]</code>。若正确 token 概率依次是 $[0.8,0.5,0.25]$：</p>
+                <div class="calculation-stack"><p>三个 loss：$[-\ln0.8,-\ln0.5,-\ln0.25]=[0.223,0.693,1.386]$。</p><p>平均 loss：$(0.223+0.693+1.386)/3=0.767$。</p><p>Perplexity：$e^{0.767}\approx2.15$。</p></div>
+            </div>
+
             <h2>4. T5：输入和输出职责分开</h2>
             <p>T5 把所有 NLP 任务统一成 text-to-text。Encoder 双向读取完整输入，decoder 一边查看 encoder 表示，一边从左到右生成输出：</p>
             <pre><code>encoder input:  translate English to German: That is good.
 decoder target: Das ist gut.</code></pre>
             <p>T5 预训练常用 span corruption：遮掉连续片段并让 decoder 生成缺失内容。这比逐 token MLM 更接近条件生成，又保留 encoder 对输入的双向理解。</p>
+
+            <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>Encoder 输入</small><strong>The &lt;X&gt; opens</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Encoder states</small><strong>$H=[h_1,h_2,h_3]$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Decoder 前缀</small><strong>&lt;X&gt; robot</strong></div><span class="process-arrow">→</span><div class="process-step"><small>目标</small><strong>robot door &lt;EOS&gt;</strong></div></div><figcaption>Span corruption 用 sentinel token 标记被删除片段；decoder 通过 cross-attention 读取完整 encoder 表示，再恢复缺失 span。</figcaption></figure>
+
+            <div class="numeric-example"><p class="numeric-example__title">例 4：一次 cross-attention</p>
+                <p>某 decoder query 对三个 encoder key 的缩放分数为 $[0,\ln2,\ln3]$，指数恰好为 $[1,2,3]$，所以权重为 $[1/6,2/6,3/6]$。若 encoder Values 是 $[1,0]$、$[0,3]$、$[2,2]$：</p>
+                <div class="equation">$$o={1\over6}[1,0]+{2\over6}[0,3]+{3\over6}[2,2]=[7/6,2]$$</div>
+                <p>decoder 的这一步可以读取 encoder 的所有位置，但仍不能在 causal self-attention 中读取未来 target。</p>
+            </div>
 
             <h2>5. 为什么通用助手多走 decoder-only？</h2>
             <ul>
@@ -66,6 +99,8 @@ decoder target: Das ist gut.</code></pre>
                 <li><strong>规模化简单</strong>：无需维护 encoder/decoder 两套堆栈和 cross-attention 接口。</li>
             </ul>
             <p>这不是“decoder-only 在一切任务上都更好”。高吞吐 embedding、reranking、双向特征提取仍常用 encoder；输入很长而输出较短、输入输出职责明确的任务也可能适合 encoder-decoder。</p>
+
+            <div class="numeric-example"><p class="numeric-example__title">例 5：长输入、短输出时 cache 的直觉</p><p>输入长 1,000、输出长 20。Encoder-decoder 可先把 1,000-token 输入编码一次，之后 20 个 decoder step 都 cross-attend 这份固定表示。Decoder-only 则把输入和已生成输出放在同一 causal 序列里，并靠 KV cache 避免每步重算前缀。两者都不是“免费”，只是计算结构不同。</p></div>
 
             <h2>6. 真正要学的是设计轴，不是品牌名</h2>
             <p>看到新模型时，先问四个问题：</p>
@@ -78,10 +113,12 @@ decoder target: Das ist gut.</code></pre>
             <div class="concept-callout"><strong>常见误解：</strong><p>“双向”不意味着 BERT 能预测未来；它表示编码某个位置时可以使用左右上下文。因果模型在生成当前 token 时不能使用尚未生成的未来。</p></div>
 
             <section class="learning-check">
-                <h3>自测</h3>
+                <h3>自测：先算后展开</h3>
                 <details><summary>1. BERT 与 GPT 最核心的结构差异是什么？</summary><p>Self-attention 的可见范围不同：BERT encoder 双向互看，GPT decoder 使用 causal mask 只看当前位置及左侧。</p></details>
                 <details><summary>2. T5 的 cross-attention 在连接什么？</summary><p>Decoder 的 Query 关注 encoder 输出形成的 Key/Value，使生成的每一步都能条件于完整输入。</p></details>
                 <details><summary>3. 为什么分类也能由 decoder-only 模型完成？</summary><p>把类别名称表示成输出 token，分类就变成在给定输入后生成正确标签，仍然使用同一 next-token 接口。</p></details>
+                <details><summary>4. 长度 5 的 causal mask 有多少个可见位置？</summary><p>$1+2+3+4+5=15$；双向 attention 则有 $5^2=25$。</p></details>
+                <details><summary>5. 正确 token 概率为 0.2 时 loss 是多少？</summary><p>$-\ln0.2\approx1.609$。</p></details>
             </section>
 
             <div class="source-list"><h3>原始资料</h3><p><a href="https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf">Generative Pre-Training</a>；<a href="https://arxiv.org/abs/1810.04805">BERT</a>；<a href="https://arxiv.org/abs/1910.10683">T5</a>。</p></div>
