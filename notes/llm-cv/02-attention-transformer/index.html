@@ -1,96 +1,87 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="从 Q/K/V、缩放点积、mask、多头注意力到完整 Transformer block。">
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="用具体数字逐步理解 Q/K/V、缩放点积、softmax、causal mask、多头注意力与完整 Transformer block。">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
-    <link rel="stylesheet" href="/css/style.css">
-    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script>
-    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <title>Qingwei Ben | Attention 与 Transformer</title>
 </head>
 <body class="container d-flex flex-column min-vh-100">
-<main class="blog-shell">
-    <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
-    <article class="post-shell">
-        <header class="post-header learning-header">
-            <span class="draft-status">02 / 14 · 初稿待学习</span>
-            <p class="eyebrow">统一的模型骨架</p>
-            <h1>Attention 与 Transformer</h1>
-            <p class="learning-header__lead">Attention 不是“关注重要单词”的拟人化按钮，而是一种由内容动态决定信息混合权重的计算。</p>
-        </header>
-        <div class="post-content learning-article">
-            <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>每个位置用 Query 提问、用 Key 决定匹配程度，再按匹配权重汇总 Value；Transformer 把这种动态信息路由与逐位置非线性变换反复堆叠。</strong></p></div>
+<main class="blog-shell"><nav class="home-nav blog-topbar" aria-label="Learning note navigation"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">02 / 14 · 第一轮精讲</span><p class="eyebrow">统一的模型骨架</p><h1>Attention 与 Transformer</h1><p class="learning-header__lead">从三个二维 token 出发，完整手算 X → Q/K/V → score → scale → mask → softmax → Value 混合，再把结果送过 residual、LayerNorm 与 MLP。</p></header>
+<div class="post-content learning-article">
+    <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>Query 与 Key 决定“从哪里取多少信息”，Value 决定“实际取什么”；Transformer block 再用 residual、LayerNorm 和 MLP 把这次跨 token 通信变成稳定的深层计算。</strong></p></div>
+    <div class="learning-route"><span>Hidden states X</span><b>→</b><span>Q / K / V</span><b>→</b><span>QKᵀ / √d</span><b>→</b><span>Mask + Softmax</span><b>→</b><span>加权 V</span><b>→</b><span>Multi-head</span><b>→</b><span>Residual + MLP</span></div>
 
-            <h2>1. Transformer 要解决什么瓶颈？</h2>
-            <p>RNN 按时间步递归更新状态。第 100 个 token 必须等待前 99 步，长距离信息也要反复穿过同一个状态通道。卷积可以并行，但要堆很多层或扩大 kernel 才能让远距离位置相互作用。</p>
-            <p>Self-attention 允许任意两个位置在一层内直接交换信息，而且训练时所有位置可以并行计算。原始 Transformer 论文在机器翻译中用 attention 完全替代 recurrence 和 convolution，这个计算骨架后来扩展到文字、图像、音频、视频和动作。</p>
+    <h2>0. 一眼看清计算顺序</h2>
+    <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>① 输入</small><strong>$X\in\mathbb R^{n\times d}$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>② 三次投影</small><strong>$Q,K,V$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>③ 两两匹配</small><strong>$QK^\top/\sqrt{d_k}$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>④ 归一化</small><strong>mask → softmax</strong></div><span class="process-arrow">→</span><div class="process-step"><small>⑤ 搬运内容</small><strong>$AV$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>⑥ 完整 block</small><strong>residual → MLP</strong></div></div><figcaption>Attention score 只决定路由权重；真正进入输出的是 Value。softmax 与乘 V 的顺序不能对调。</figcaption></figure>
 
-            <h2>2. Q、K、V 分别是什么？</h2>
-            <p>输入 hidden states 记为 $X\in\mathbb R^{n\times d}$。三个可学习线性映射产生：</p>
-            <div class="equation">$$Q=XW_Q,\qquad K=XW_K,\qquad V=XW_V$$</div>
-            <ul>
-                <li><strong>Query</strong>：当前位置此刻想寻找什么信息。</li>
-                <li><strong>Key</strong>：每个候选位置用什么特征接受匹配。</li>
-                <li><strong>Value</strong>：匹配之后真正被搬运和混合的内容。</li>
-            </ul>
-            <p>Q/K/V 都来自同一序列时叫 self-attention；Query 来自 decoder、Key/Value 来自 encoder 时叫 cross-attention。</p>
+    <h2>1. 为什么需要 Q、K、V 三套表示？</h2>
+    <p>输入每一行是一个 token 当前的 hidden state。假设三个 token 为 A、B、C，模型宽度 $d=2$：</p>
+    <div class="numeric-example"><p class="numeric-example__title">例 1：从 X 线性投影出 Q、K、V</p>
+        <div class="equation">$$X=\begin{bmatrix}1&0\\0&1\\1&1\end{bmatrix},\ W_Q=\begin{bmatrix}1&0\\0&1\end{bmatrix},\ W_K=\begin{bmatrix}1&1\\0&1\end{bmatrix},\ W_V=\begin{bmatrix}1&0\\1&2\end{bmatrix}$$</div>
+        <p>例如 C 的 hidden state 是 $[1,1]$：</p><div class="calculation-stack"><p>$q_C=[1,1]W_Q=[1,1]$</p><p>$k_C=[1,1]W_K=[1,2]$</p><p>$v_C=[1,1]W_V=[2,2]$</p></div>
+        <p>全部结果：</p><div class="equation">$$Q=\begin{bmatrix}1&0\\0&1\\1&1\end{bmatrix},\quad K=\begin{bmatrix}1&1\\0&1\\1&2\end{bmatrix},\quad V=\begin{bmatrix}1&0\\1&2\\2&2\end{bmatrix}$$</div>
+        <p>同一个输入变成三种角色：拿什么去问、别人如何匹配它、匹配后实际发送什么。</p>
+    </div>
 
-            <h2>3. 缩放点积注意力</h2>
-            <p>一个 Query 与所有 Key 做点积得到相似度，除以 $\sqrt{d_k}$ 后经过 softmax，再加权求和 Value：</p>
-            <div class="equation">$$\operatorname{Attention}(Q,K,V)=\operatorname{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}+M\right)V$$</div>
-            <p>$M$ 是可选 mask。为什么除以 $\sqrt{d_k}$？若各维近似独立、方差相近，点积方差会随维度 $d_k$ 增长。数值过大时 softmax 接近 one-hot，梯度容易变小；缩放让 logits 的典型尺度更稳定。</p>
+    <h2>2. 单个 Query 怎样完成一次 attention？</h2>
+    <p>只计算 token C 的输出。$q_C=[1,1]$ 分别与三个 key 点积：</p>
+    <div class="numeric-example"><p class="numeric-example__title">例 2：score → scale → softmax → 加权 Value</p>
+        <div class="calculation-stack"><p>scores：$[1,1]\cdot[1,1]=2$，与 $[0,1]$ 得 1，与 $[1,2]$ 得 3，所以为 $[2,1,3]$。</p><p>$d_k=2$，缩放后 $[2,1,3]/\sqrt2\approx[1.414,0.707,2.121]$。</p><p>指数约 $[4.113,2.028,8.340]$，总和 $14.481$。</p><p>softmax 权重 $a_C\approx[0.284,0.140,0.576]$。</p></div>
+        <div class="equation">$$o_C=0.284[1,0]+0.140[1,2]+0.576[2,2]=[1.576,1.432]$$</div>
+        <p>第一维：$0.284+0.140+1.152=1.576$；第二维：$0+0.280+1.152=1.432$。</p>
+    </div>
 
-            <h3>一个三位置的最小例子</h3>
-            <p>假设某个 Query 与三个 Key 的缩放后分数是 $[2,1,0]$。softmax 大约得到 $[0.67,0.24,0.09]$。输出不是复制“最相关”的一个 Value，而是：</p>
-            <div class="equation">$$0.67V_1+0.24V_2+0.09V_3$$</div>
-            <p>因此 attention 本质是内容相关的加权信息混合。权重很大不自动等于“人类意义上的解释”或因果重要性。</p>
+    <h3>为什么除以 $\sqrt{d_k}$？</h3>
+    <p>若 Q、K 每维独立、均值 0、方差 1，那么点积是 $d_k$ 项之和，方差约为 $d_k$。除以 $\sqrt{d_k}$ 后方差回到约 1，避免 softmax 过早饱和。</p>
+    <div class="numeric-example"><p class="numeric-example__title">例 3：缩放如何保留梯度</p><p>logits 为 $[8,0]$ 时，softmax 第一项约 $0.9997$；若 $d_k=64$，除以 8 后变成 $[1,0]$，概率约 $0.731$。</p><p>二分类 softmax 的局部斜率 $p(1-p)$：前者约 $0.0003$，后者约 $0.197$。缩放让初始梯度健康得多。</p></div>
 
-            <h2>4. Mask 到底遮住什么？</h2>
-            <p>Mask 通常在 softmax 前把不允许的位置加上极大的负数（实现里常见 <code>big_neg</code>），使这些位置概率近似零。</p>
-            <div class="compare-grid">
-                <div class="compare-card"><h3>Causal mask</h3><p>位置 $t$ 不能看未来位置 $&gt;t$。用于自回归语言模型，防止训练时偷看答案。</p></div>
-                <div class="compare-card"><h3>Padding mask</h3><p>不同长度样本补齐后，禁止真实 token 关注没有内容的 padding 位置。</p></div>
-            </div>
-            <p><code>attention_mask</code> 在不同代码库里可能表示布尔“允许矩阵”、0/1 有效位，或已加到 logits 的 bias。读代码时必须同时确认 shape、dtype、广播方向和 0/1 语义。</p>
+    <h2>3. 一次算完整个 $QK^\top$</h2>
+    <p>所有 query 对所有 key 的点积写成一次矩阵乘法：</p><div class="equation">$$QK^\top=\begin{bmatrix}1&0&1\\1&1&2\\2&1&3\end{bmatrix}$$</div>
+    <div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>query ↓ / key →</th><th>A</th><th>B</th><th>C</th></tr></thead><tbody><tr><th>A</th><td>1</td><td>0</td><td>1</td></tr><tr><th>B</th><td>1</td><td>1</td><td>2</td></tr><tr class="matrix-highlight"><th>C</th><td>2</td><td>1</td><td>3</td></tr></tbody></table></div>
+    <p><strong>行是“谁在问”，列是“它在读谁”</strong>。矩阵有 $n^2$ 个元素，这是标准 attention 长序列成本的来源。</p>
 
-            <h2>5. Multi-head 不是简单重复</h2>
-            <p>每个 head 有自己的 $W_Q,W_K,W_V$，在较低维子空间中独立计算 attention。各 head 输出拼接后再线性投影：</p>
-            <div class="equation">$$\operatorname{MHA}(X)=\operatorname{Concat}(head_1,\ldots,head_h)W_O$$</div>
-            <p>不同 head 可以学习不同关系或不同位置模式，但没有保证某个 head 必然对应语法、指代等人类概念。多头的核心作用是提供多组独立的信息路由子空间。</p>
+    <h2>4. Mask 为什么必须在 softmax 前？</h2>
+    <figure class="learning-figure"><div class="mask-grid" role="img" aria-label="Three by three causal attention mask"><span></span><strong>A</strong><strong>B</strong><strong>C</strong><strong></strong><strong></strong><strong>A</strong><span class="mask-yes">✓</span><span class="mask-no">×</span><span class="mask-no">×</span><strong></strong><strong></strong><strong>B</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-no">×</span><strong></strong><strong></strong><strong>C</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span><strong></strong><strong></strong></div><figcaption>上三角被屏蔽。Padding mask 则屏蔽补齐位置，两种 mask 可以叠加。</figcaption></figure>
+    <div class="numeric-example"><p class="numeric-example__title">例 4：B 不能偷看 C</p><p>B 行是 $[1,1,2]$，causal mask 后为 $[1,1,-\infty]$。除以 $\sqrt2$ 后前两项相同，softmax 是 $[0.5,0.5,0]$。</p><div class="equation">$$o_B=0.5v_A+0.5v_B=0.5[1,0]+0.5[1,2]=[1,1]$$</div><p>若 softmax 后才遮住第三项，剩余权重通常不再和为 1。</p></div>
 
-            <h2>6. 一个 Transformer block 还有什么？</h2>
-            <pre><code>x
- ├─ LayerNorm → Multi-Head Attention → + residual
- └─ LayerNorm → MLP / Feed-Forward    → + residual</code></pre>
-            <ul>
-                <li><strong>Attention</strong> 在 token 之间混合信息。</li>
-                <li><strong>MLP/FFN</strong> 对每个位置独立做非线性特征变换，通常先升维再降维。</li>
-                <li><strong>Residual connection</strong> 保留原信息并改善深层优化。</li>
-                <li><strong>LayerNorm</strong> 控制激活尺度；现代模型常使用 pre-norm。</li>
-            </ul>
+    <h2>5. 互动：拖动 score，观察 softmax 与输出</h2>
+    <figure class="learning-figure autoregressive-demo" id="attention-demo"><div class="demo-controls"><label for="att-score">把 C→C 的 score 改为：</label><input id="att-score" type="range" min="-2" max="4" value="2" step="0.1"><strong id="att-score-value">2.0</strong></div><div class="probability-bars" id="att-bars" aria-live="polite"></div><p id="att-output" class="calculation-line"></p><figcaption>另外两个 score 固定为 1 和 0；三个 Value 是 $[1,0]$、$[1,2]$、$[2,2]$。score 只改混合比例。</figcaption></figure>
 
-            <h2>7. 位置信息从哪里来？</h2>
-            <p>纯 self-attention 若没有位置编码，对 token 排列的置换没有天然区分。原始 Transformer 加正弦位置编码；后续常见 learned position embedding、相对位置 bias 和 RoPE。RoPE 通过与位置有关的旋转作用于 Q/K，使点积自然携带相对位置信息。</p>
+    <h2>6. Multi-head：并行的多套信息路由</h2>
+    <p>若 $d_{model}=4$、$h=2$，每个 head 常取 $d_k=d_v=2$。两套投影各自计算，再拼接。</p>
+    <div class="numeric-example"><p class="numeric-example__title">例 5：两个 head 如何拼回模型宽度</p><p>假设两个 head 输出 $o^{(1)}=[1.2,-0.4]$、$o^{(2)}=[0.5,2.0]$：</p><div class="calculation-stack"><p>Concat：$[1.2,-0.4,0.5,2.0]$。</p><p>若 $W_O=I_4$，MHA 输出不变。</p><p>若 $W_O=0.5I_4$，输出为 $[0.6,-0.2,0.25,1.0]$。</p></div><p>每个 head 有独立投影，不是把相同结果重复计算。</p></div>
 
-            <h2>8. 代价与边界</h2>
-            <p>标准 attention 的 score matrix 是 $n\times n$，计算和显存随序列长度约为 $O(n^2)$。它能在一层建立长距离连接，但不是“无限上下文免费”：长序列仍受到显存、带宽、位置外推和有效利用能力限制。</p>
-            <div class="concept-callout"><strong>常见误解：</strong><p>Transformer 不等于 attention 一个公式。完整系统还包括 embedding、位置机制、MLP、残差、归一化、训练目标和大量系统优化。</p></div>
+    <h2>7. Attention 之后：完整 pre-norm block</h2>
+    <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>输入</small><strong>$x$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>子层 1</small><strong>LN → MHA</strong></div><span class="process-arrow">→</span><div class="process-step"><small>残差 1</small><strong>$y=x+\mathrm{MHA}$</strong></div><span class="process-arrow">→</span><div class="process-step"><small>子层 2</small><strong>LN → MLP</strong></div><span class="process-arrow">→</span><div class="process-step"><small>残差 2</small><strong>$z=y+\mathrm{MLP}$</strong></div></div><figcaption>Attention 跨位置混合；MLP 在每个位置独立跨通道变换；Residual 提供恒等路径。</figcaption></figure>
+    <div class="numeric-example"><p class="numeric-example__title">例 6：手算 residual、LayerNorm 与两层 MLP</p><p>某 token 输入 $x=[1,2]$，attention 输出 $a=[0.5,-0.5]$，残差后 $y=[1.5,1.5]$。另取 $y=[1,3]$ 演示 LayerNorm：均值 2、方差 1，忽略 $\epsilon$ 且 $\gamma=1,\beta=0$：</p><div class="equation">$$\operatorname{LN}([1,3])=[-1,1]$$</div><p>若第一层产生 $[-1,2,1]$，ReLU 后为 $[0,2,1]$；第二层输出 $[1,0]$，最后 residual 得 $[1,3]+[1,0]=[2,3]$。</p></div>
 
-            <section class="learning-check">
-                <h3>自测</h3>
-                <details><summary>1. 为什么需要分别投影 Q、K、V？</summary><p>匹配使用的特征与最终传递的内容可以不同；独立投影让模型学习“按什么匹配”和“匹配后传什么”。</p></details>
-                <details><summary>2. 为什么 causal mask 要加在 softmax 前？</summary><p>把禁止位置的 logit 变成极大负数后，它们的指数近似零，归一化概率也近似零；softmax 后再遮会破坏概率归一化。</p></details>
-                <details><summary>3. Attention 与 MLP 在 block 中分别负责什么？</summary><p>Attention 跨 token 路由和混合信息；MLP 对每个位置的通道特征做独立非线性变换。</p></details>
-            </section>
+    <h2>8. 位置信息与计算代价</h2>
+    <p>没有位置机制的 self-attention 不区分排列。原始 Transformer 加正弦位置编码；RoPE 按位置旋转 Q/K，使点积带相对位置信息。</p>
+    <div class="numeric-example"><p class="numeric-example__title">例 7：长度翻倍，score matrix 增长四倍</p><p>$n=1{,}024$ 时每 head 有 $1{,}024^2=1{,}048{,}576$ 个 score；$n=2{,}048$ 时有 $4{,}194{,}304$ 个，恰好 4 倍。若每项 fp16 占 2 bytes，一张显式矩阵约从 2 MiB 增至 8 MiB。</p></div>
 
-            <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>；<a href="https://arxiv.org/abs/2104.09864">RoFormer / RoPE</a>。</p></div>
-            <nav class="article-series-nav"><a href="/notes/llm-cv/01-token-embedding-autoregressive/">← 上一篇：Token 与自回归</a><a href="/notes/llm-cv/03-gpt-bert-t5/">下一篇：GPT、BERT 与 T5 →</a></nav>
-        </div>
-    </article>
-</main>
+    <div class="concept-callout"><strong>常见误解：</strong><p>高 attention weight 不自动等于“这个 token 对答案最重要”，更不是因果解释。它只是某一层、某一 head、某一 query 的路由系数；后续 residual、MLP 与其他层还会继续改变信息。</p></div>
+    <section class="learning-check"><h3>自测：先算后展开</h3><details><summary>1. $q=[1,2]$，keys 为 $[1,0]$、$[0,1]$，scores 是多少？</summary><p>$[1,2]$。</p></details><details><summary>2. scores 为 $[0,0]$、Values 为 $[2,0]$ 和 $[0,4]$，输出是什么？</summary><p>权重 $[0.5,0.5]$，输出 $[1,2]$。</p></details><details><summary>3. 为什么 QKᵀ 是 $n\times n$？</summary><p>$Q$ 是 $n\times d_k$，$K^\top$ 是 $d_k\times n$；每个 query 都要给每个 key 一个分数。</p></details><details><summary>4. Attention 与 MLP 分别负责什么？</summary><p>Attention 跨 token 路由；MLP 在每个 token 内变换通道。</p></details><details><summary>5. $d_{model}=768$、12 heads，每头维度和缩放因子？</summary><p>$768/12=64$，缩放因子 $\sqrt{64}=8$。</p></details></section>
+    <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>；<a href="https://arxiv.org/abs/2104.09864">RoFormer / RoPE</a>。下一篇比较 attention mask 与网络拓扑怎样产生 BERT、GPT、T5。</p></div>
+    <nav class="article-series-nav"><a href="/notes/llm-cv/01-token-embedding-autoregressive/">← 上一篇：Token 与自回归</a><a href="/notes/llm-cv/03-gpt-bert-t5/">下一篇：GPT、BERT 与 T5 →</a></nav>
+</div></article></main>
 <footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
-</body>
-</html>
+<script>
+(() => {
+    const slider=document.getElementById('att-score'), label=document.getElementById('att-score-value'), bars=document.getElementById('att-bars'), output=document.getElementById('att-output');
+    if(!slider||!label||!bars||!output) return;
+    const names=['A','B','C'], values=[[1,0],[1,2],[2,2]];
+    function render(){
+        const scores=[1,0,Number(slider.value)], exps=scores.map(Math.exp), total=exps.reduce((a,b)=>a+b,0), probs=exps.map(x=>x/total);
+        label.textContent=scores[2].toFixed(1); bars.innerHTML='';
+        probs.forEach((p,i)=>{const row=document.createElement('div');row.className='probability-row'+(i===2?' is-picked':'');row.innerHTML=`<code>${names[i]}</code><span class="probability-track"><i style="width:${p*100}%"></i></span><strong>${(p*100).toFixed(1)}%</strong>`;bars.appendChild(row);});
+        const x=probs.reduce((s,p,i)=>s+p*values[i][0],0), y=probs.reduce((s,p,i)=>s+p*values[i][1],0);
+        output.textContent=`输出 = ${probs.map((p,i)=>`${p.toFixed(3)}·V${names[i]}`).join(' + ')} = [${x.toFixed(3)}, ${y.toFixed(3)}]`;
+    }
+    slider.addEventListener('input',render); render();
+})();
+</script>
+</body></html>
