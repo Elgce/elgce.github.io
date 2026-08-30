@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="理解 token、embedding、next-token prediction、teacher forcing 与自回归生成。">
+    <meta name="description" content="用具体数字逐步理解 tokenization、embedding lookup、位置编码、自回归分解、teacher forcing、causal mask、softmax 与 cross-entropy。">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
         integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
@@ -23,109 +23,325 @@
 
     <article class="post-shell">
         <header class="post-header learning-header">
-            <span class="draft-status">01 / 14 · 初稿待学习</span>
+            <span class="draft-status">01 / 14 · 第一轮精讲</span>
             <p class="eyebrow">序列模型的地基</p>
             <h1>Token、Embedding 与自回归训练</h1>
-            <p class="learning-header__lead">模型怎样把原始信息变成数字，又怎样只靠“预测下一步”从海量无标签数据里学到结构。</p>
+            <p class="learning-header__lead">从一句 <code>I love robots</code> 出发，亲手走完字符串 → token ID → 向量 → masked Transformer → logits → probability → loss → 参数更新 → 逐 token 生成。</p>
         </header>
 
         <div class="post-content learning-article">
             <div class="key-takeaway">
                 <h3>先记住一句话</h3>
-                <p><strong>Token 决定模型处理的离散单位，embedding 把单位变成可学习向量，自回归目标则把一条序列变成许多“根据过去预测下一步”的监督题。</strong></p>
+                <p><strong>Token 是模型处理的离散符号，embedding 是符号对应的可学习向量；自回归训练把序列右移一位，让模型在每个位置根据过去预测下一个 token。</strong></p>
             </div>
 
-            <h2>1. 为什么先要 tokenization？</h2>
-            <p>神经网络只接收固定形状的数字张量，不能直接计算字符串、图片或机器人动作。第一步因此不是“理解”，而是把原始对象表示成一串有限词表中的离散单元。</p>
-            <pre><code>"I love robotics"
-        ↓ tokenizer（仅为示意）
-["I", " love", " robot", "ics"]
-        ↓ vocabulary lookup
-[40, 1842, 9201, 1127]</code></pre>
-            <p>token 不等于单词。它可以是字符、子词、字节、图像 patch、视觉 code，或者离散动作。Tokenizer 做的是一种工程折中：</p>
+            <div class="learning-route" aria-label="This article's learning path">
+                <span>字符串</span><b>→</b><span>Token</span><b>→</b><span>ID</span><b>→</b><span>Embedding</span><b>→</b><span>Transformer</span><b>→</b><span>Logits</span><b>→</b><span>Loss / 生成</span>
+            </div>
+
+            <h2>0. 先看完整计算顺序</h2>
+            <figure class="learning-figure">
+                <div class="process-flow" aria-label="Autoregressive language model computation flow">
+                    <div class="process-step"><small>① 原始文本</small><strong>I love robots</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>② 训练输入 IDs</small><strong>[0, 1, 2, 3, 4]</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>③ 向量序列</small><strong>$X\in\mathbb R^{5\times3}$</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>④ Causal Transformer</small><strong>hidden states</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>⑤ 输出</small><strong>logits → softmax</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>⑥ 训练 / 推理</small><strong>loss / next token</strong></div>
+                </div>
+                <figcaption>同一个网络有两种使用方式：训练时用正确答案算 loss，推理时把预测 token 接回输入。</figcaption>
+            </figure>
+
+            <h2>1. Tokenization：字符串怎样变成符号</h2>
+            <p>神经网络不能直接对字符串做矩阵乘法。Tokenizer 先把文本切成有限词表中的符号。为了能完整手算，我们定义一个只有 6 项的玩具词表：</p>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 1：一个玩具 tokenizer</p>
+                <table>
+                    <thead><tr><th>Token</th><th><code>&lt;BOS&gt;</code></th><th><code>I</code></th><th><code>love</code></th><th><code>robot</code></th><th><code>s</code></th><th><code>&lt;EOS&gt;</code></th></tr></thead>
+                    <tbody><tr><th>ID</th><td>0</td><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
+                </table>
+                <div class="calculation-line"><code>"I love robots" → [&lt;BOS&gt;, I, love, robot, s, &lt;EOS&gt;] → [0, 1, 2, 3, 4, 5]</code></div>
+                <p><code>robots</code> 不在词表里，所以被拆成 <code>robot</code> + <code>s</code>。真实 tokenizer 会用 BPE、Unigram 或 byte-level 方法学习这种子词词表；这里的切法只为说明计算。</p>
+            </div>
+
+            <p>token 不等于单词。它可以是子词、字节、图像 patch、视觉 code 或离散动作。词表大小是在两种成本之间折中：</p>
             <ul>
-                <li><strong>词表很大</strong>：常见词可能只占一个 token，但 embedding/output 层更大，稀有词也难覆盖。</li>
-                <li><strong>词表很小</strong>：几乎不会遇到未知词，但每段文本会变长，attention 和生成成本随之上升。</li>
-                <li><strong>子词或字节</strong>：在覆盖率、序列长度和多语言能力之间折中，因此成为常见方案。</li>
+                <li><strong>词表大</strong>：序列较短，但 embedding/output matrix 更大。</li>
+                <li><strong>词表小</strong>：覆盖灵活，但同一内容被切得更长，attention 与生成更贵。</li>
             </ul>
-            <div class="concept-callout">
-                <strong>不要误读 token ID：</strong>
-                <p>ID 只是类别编号。编号 100 不比编号 10 “大十倍”，两个 ID 数字接近也不代表语义接近。</p>
+            <div class="concept-callout"><strong>Token ID 没有数值大小含义：</strong><p>若把 <code>robot</code> 的 ID 从 3 改成 500，同时把它的 embedding 搬到矩阵第 500 行，模型语义不变。ID 只是数组索引，不是“robot = 3.0”这个连续数值。</p></div>
+
+            <h2>2. Embedding lookup：ID 怎样变成向量</h2>
+            <p>设词表大小 $V=6$、模型宽度 $d=3$。模型维护可训练矩阵 $E\in\mathbb R^{6\times3}$。这里假设当前参数是：</p>
+
+            <div class="matrix-wrap" role="region" aria-label="Embedding matrix" tabindex="0">
+                <table class="matrix-table">
+                    <thead><tr><th>ID / token</th><th>维度 1</th><th>维度 2</th><th>维度 3</th></tr></thead>
+                    <tbody>
+                        <tr><th>0 / <code>&lt;BOS&gt;</code></th><td>0.10</td><td>−0.20</td><td>0.00</td></tr>
+                        <tr><th>1 / <code>I</code></th><td>0.40</td><td>0.10</td><td>−0.30</td></tr>
+                        <tr><th>2 / <code>love</code></th><td>−0.20</td><td>0.70</td><td>0.50</td></tr>
+                        <tr class="matrix-highlight"><th>3 / <code>robot</code></th><td>0.80</td><td>0.10</td><td>−0.40</td></tr>
+                        <tr><th>4 / <code>s</code></th><td>0.05</td><td>0.60</td><td>0.20</td></tr>
+                        <tr><th>5 / <code>&lt;EOS&gt;</code></th><td>−0.50</td><td>0.20</td><td>0.30</td></tr>
+                    </tbody>
+                </table>
             </div>
 
-            <h2>2. Embedding：把类别变成坐标</h2>
-            <p>设词表大小为 $V$、模型宽度为 $d$。模型维护一个可训练矩阵 $E\in\mathbb{R}^{V\times d}$。token $i$ 的输入向量就是第 $i$ 行：</p>
-            <div class="equation">$$\mathbf e_i = E[i]$$</div>
-            <p>这等价于 one-hot 向量乘以矩阵，却不用真的构造巨大 one-hot。训练开始时这些向量通常接近随机；为了降低预测损失，梯度会同时更新 embedding 和网络其他参数。</p>
-            <p>要区分两种经常都被叫作“表示”的东西：</p>
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 2：查表与 one-hot 乘法是同一件事</p>
+                <p><code>robot</code> 的 ID 是 3，所以直接取 $E$ 的第 3 行：</p>
+                <div class="equation">$$E[3]=[0.80,\ 0.10,\ -0.40]$$</div>
+                <p>若写成 one-hot，结果完全相同：</p>
+                <div class="equation">$$[0,0,0,1,0,0]\;E=[0.80,\ 0.10,\ -0.40]$$</div>
+                <p>于是训练输入 <code>[&lt;BOS&gt;, I, love, robot, s]</code> 变成 $5\times3$ 矩阵：</p>
+                <pre><code>[[ 0.10, -0.20,  0.00],   # &lt;BOS&gt;
+ [ 0.40,  0.10, -0.30],   # I
+ [-0.20,  0.70,  0.50],   # love
+ [ 0.80,  0.10, -0.40],   # robot
+ [ 0.05,  0.60,  0.20]]   # s</code></pre>
+            </div>
+
+            <h3>位置也必须进入表示</h3>
+            <p>仅做 token lookup 时，<code>robot love</code> 与 <code>love robot</code> 只是同两行向量换序；模型还需要明确位置。用最简单的加法式位置向量举例，假设位置 3 的向量是 $P_3=[0.05,-0.10,0.20]$：</p>
+            <div class="equation">$$X_3=E[\text{robot}]+P_3=[0.80,0.10,-0.40]+[0.05,-0.10,0.20]=[0.85,0.00,-0.20]$$</div>
+            <p>现代模型也常使用 RoPE，不一定把位置向量直接加到输入；但“token 内容”和“它位于哪里”仍是两个不同信号。</p>
+
             <div class="compare-grid">
-                <div class="compare-card">
-                    <h3>输入 embedding</h3>
-                    <p>只由 token ID 查表得到。同一个 token 每次进入模型时起点相同。</p>
-                </div>
-                <div class="compare-card">
-                    <h3>上下文 hidden state</h3>
-                    <p>经过多层 attention 后形成。同一个 token 在不同句子中可以完全不同。</p>
-                </div>
+                <div class="compare-card"><h3>Input embedding</h3><p>由 token ID 查表得到；同一个 token 的起始向量相同。</p></div>
+                <div class="compare-card"><h3>Contextual hidden state</h3><p>经过 attention 后得到；同一个 <code>robot</code> 在不同上下文中会变成不同向量。</p></div>
             </div>
-            <p>所以“embedding 是词义”只是粗略直觉。真正参与下一 token 预测的是当前位置的上下文 hidden state。</p>
 
-            <h2>3. 自回归到底是什么意思？</h2>
-            <p>自回归不是某个网络结构，而是一种概率分解。概率链式法则给出：</p>
+            <h2>3. 自回归：把联合概率拆成一步一步</h2>
+            <p>自回归是一种概率分解，不等于 Transformer，也不要求输出一定是文字：</p>
             <div class="equation">$$p(x_{1:T})=\prod_{t=1}^{T}p(x_t\mid x_{&lt;t})$$</div>
-            <p>模型只需要学会每一步的条件分布 $p(x_t\mid x_{&lt;t})$，这些分布相乘便定义了整个序列的概率。RNN、Transformer 或其他网络都可以参数化它。</p>
-            <p>例如序列 <code>I love robotics &lt;EOS&gt;</code> 会产生多道训练题：</p>
-            <pre><code>看到：&lt;BOS&gt;                 → 预测：I
-看到：&lt;BOS&gt; I               → 预测：love
-看到：&lt;BOS&gt; I love          → 预测：robotics
-看到：&lt;BOS&gt; I love robotics → 预测：&lt;EOS&gt;</code></pre>
-            <p>这就是 next-token prediction。它的监督标签直接来自原始序列本身，因此不需要人工逐条标注任务答案，通常被称为自监督学习。</p>
+            <p>对我们的序列，模型要估计五个条件概率：</p>
 
-            <h2>4. Teacher forcing、causal mask 与 loss</h2>
-            <p>训练时整条正确序列已经存在。我们把真实的历史 token 提供给每个位置，这叫 <strong>teacher forcing</strong>。Transformer 再用 causal mask 禁止位置 $t$ 看见未来 $t+1:T$，便可以一次前向并行计算所有预测题。</p>
-            <p>每个位置输出整个词表上的 logits。softmax 把它变成概率，正确 token 的交叉熵为：</p>
-            <div class="equation">$$\mathcal L_t=-\log p_\theta(x_t\mid x_{&lt;t})$$</div>
-            <p>对所有有效位置求和或平均，就是 sequence loss。最小化它等价于最大化训练序列在模型下的 likelihood：模型不断提高真实后续的概率。</p>
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 3：整句概率、NLL 与 perplexity</p>
+                <table class="calculation-table">
+                    <thead><tr><th>已知过去</th><th>正确下一个 token</th><th>假设模型概率</th><th>$-\ln p$</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>&lt;BOS&gt;</code></td><td><code>I</code></td><td>0.80</td><td>0.22314</td></tr>
+                        <tr><td><code>&lt;BOS&gt; I</code></td><td><code>love</code></td><td>0.70</td><td>0.35667</td></tr>
+                        <tr><td><code>… I love</code></td><td><code>robot</code></td><td>0.60</td><td>0.51083</td></tr>
+                        <tr><td><code>… love robot</code></td><td><code>s</code></td><td>0.90</td><td>0.10536</td></tr>
+                        <tr><td><code>… robot s</code></td><td><code>&lt;EOS&gt;</code></td><td>0.50</td><td>0.69315</td></tr>
+                    </tbody>
+                </table>
+                <div class="calculation-stack">
+                    <p>整句概率：$0.80\times0.70\times0.60\times0.90\times0.50=0.1512$</p>
+                    <p>总 NLL：$-\ln(0.1512)=1.8892$，也等于右列相加后的结果（存在末位舍入）。</p>
+                    <p>平均 loss：$1.8890/5=0.3778$。</p>
+                    <p>Perplexity：$e^{0.3778}\approx1.459$。</p>
+                </div>
+            </div>
+            <p>整句很长时，许多小于 1 的概率相乘会非常小，所以实际计算用 log：乘法变加法，数值也更稳定。</p>
+
+            <h2>4. Teacher forcing：一条序列怎样变成五道题</h2>
+            <p>训练时完整正确序列已经在磁盘里。输入和标签只需错开一位：</p>
+            <figure class="learning-figure">
+                <div class="shift-diagram">
+                    <div class="shift-label">模型输入</div><code>&lt;BOS&gt;</code><code>I</code><code>love</code><code>robot</code><code>s</code>
+                    <div class="shift-label">训练标签</div><code>I</code><code>love</code><code>robot</code><code>s</code><code>&lt;EOS&gt;</code>
+                    <div class="shift-label">位置</div><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span>
+                </div>
+                <figcaption>位置 2 的输入历史以 <code>love</code> 结尾，标签是 <code>robot</code>。所有位置可在一次 forward 中同时算出。</figcaption>
+            </figure>
+
+            <p><strong>Teacher forcing</strong> 的意思是：训练位置 $t$ 时，前缀使用数据中的真实 token，而不是模型刚才猜出的 token。这样训练稳定且可以并行；推理时没有未来真值，才必须使用自己的输出。</p>
+
+            <h2>5. Causal mask：为什么并行训练没有偷看答案</h2>
+            <p>虽然五个位置一起进入 Transformer，但 attention mask 禁止每个 query 读取未来 key。下面行是 query 位置，列是它想读取的位置：</p>
+            <figure class="learning-figure">
+                <div class="mask-grid" role="img" aria-label="Five by five causal attention mask">
+                    <span></span><strong>0</strong><strong>1</strong><strong>2</strong><strong>3</strong><strong>4</strong>
+                    <strong>0</strong><span class="mask-yes">✓</span><span class="mask-no">×</span><span class="mask-no">×</span><span class="mask-no">×</span><span class="mask-no">×</span>
+                    <strong>1</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-no">×</span><span class="mask-no">×</span><span class="mask-no">×</span>
+                    <strong>2</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-no">×</span><span class="mask-no">×</span>
+                    <strong>3</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-no">×</span>
+                    <strong>4</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span>
+                </div>
+                <figcaption>例如位置 2 可以看 0、1、2，却不能看位置 3 的 <code>robot</code> 和位置 4 的 <code>s</code>。实现中被屏蔽的 attention score 会在 softmax 前加上 $-\infty$。</figcaption>
+            </figure>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 4：mask 在 softmax 中怎样生效</p>
+                <p>假设位置 2 对五个 key 的原始 attention score 是：</p>
+                <div class="calculation-line"><code>[1.2, 0.3, 0.8, 2.0, −0.1]</code></div>
+                <p>位置 3、4 属于未来，mask 后变成：</p>
+                <div class="calculation-line"><code>[1.2, 0.3, 0.8, −∞, −∞]</code></div>
+                <p>对前三项 softmax：$e^{1.2}=3.320$，$e^{0.3}=1.350$，$e^{0.8}=2.226$，总和 $6.896$，所以权重约为：</p>
+                <div class="calculation-line"><code>[0.482, 0.196, 0.323, 0, 0]</code></div>
+                <p>未来位置严格得到 0 权重，而不是“很小的权重”。</p>
+            </div>
+
+            <h2>6. Logits、softmax 与 cross-entropy</h2>
+            <p>Transformer 输出当前位置 hidden state $h_t$；线性输出层把它投影到词表大小，得到 logits。Logit 可以为任意实数，不是概率。Softmax 才把它正规化：</p>
+            <div class="equation">$$p_i=\frac{e^{z_i}}{\sum_j e^{z_j}},\qquad \mathcal L_t=-\ln p_{\text{correct}}$$</div>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 5：从四个 logits 手算一个位置的 loss</p>
+                <p>位置 2 的正确标签是 <code>robot</code>。为简化，只展示四个候选：</p>
+                <table class="calculation-table">
+                    <thead><tr><th>候选</th><th><code>I</code></th><th><code>love</code></th><th><code>robot</code></th><th><code>&lt;EOS&gt;</code></th></tr></thead>
+                    <tbody><tr><th>logit $z$</th><td>0</td><td>1</td><td>2</td><td>−1</td></tr><tr><th>$e^z$</th><td>1.000</td><td>2.718</td><td>7.389</td><td>0.368</td></tr><tr><th>概率</th><td>0.087</td><td>0.237</td><td class="matrix-highlight">0.644</td><td>0.032</td></tr></tbody>
+                </table>
+                <p>分母为 $1+2.718+7.389+0.368=11.475$，所以：</p>
+                <div class="equation">$$p(\text{robot})=7.389/11.475=0.644,\qquad \mathcal L=-\ln(0.644)=0.440$$</div>
+                <p>若一次更新后 <code>robot</code> logit 从 2 增加到 2.6，其他不变，则 $p(\text{robot})\approx0.767$，loss 降到 $-\ln(0.767)\approx0.265$。</p>
+            </div>
+
+            <h3>梯度究竟更新什么</h3>
+            <p>Loss 会通过输出层、Transformer、位置模块一路反向传播到 embedding。用一个标量说明 SGD：若 <code>robot</code> embedding 第一维当前为 $0.80$，梯度为 $\partial L/\partial E_{3,1}=0.30$，学习率 $\eta=0.10$：</p>
+            <div class="equation">$$E_{3,1}\leftarrow0.80-0.10\times0.30=0.77$$</div>
+            <p>真实训练会同时更新数十亿个参数，并通常使用 AdamW，而不是这个单变量 SGD；但“沿着降低 loss 的方向改变参数”就是同一件事。</p>
+
+            <h2>7. 推理：为什么必须一个 token 一个 token 地生成</h2>
+            <p>训练时标签已知，所以所有位置能并行；推理时第 2 步输入依赖第 1 步刚生成的 token。下面这个动画使用预先写好的玩具概率，演示 greedy decoding 的信息流：</p>
+
+            <figure class="learning-figure autoregressive-demo" id="autoregressive-demo">
+                <div class="demo-controls">
+                    <button type="button" id="ar-play">▶ 播放逐 token 生成</button>
+                    <button type="button" id="ar-reset">重置</button>
+                    <span id="ar-step-label">等待播放</span>
+                </div>
+                <div class="token-stage" id="ar-tokens"><span>&lt;BOS&gt;</span></div>
+                <div class="probability-bars" id="ar-bars" aria-live="polite"></div>
+                <figcaption>每一步都重新运行模型：读入目前完整前缀，得到下一 token 分布，选中一个 token，再把它追加到前缀。</figcaption>
+            </figure>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 6：Greedy、sampling 与 temperature</p>
+                <p>若某一步分布是 <code>robot: 0.60, AI: 0.25, &lt;EOS&gt;: 0.15</code>：</p>
+                <ul>
+                    <li><strong>Greedy</strong> 永远选概率最大的 <code>robot</code>。</li>
+                    <li><strong>Sampling</strong> 按概率抽样；重复很多次，约 60% 选 <code>robot</code>、25% 选 <code>AI</code>。</li>
+                    <li><strong>Temperature</strong> 使用 $\operatorname{softmax}(z/T)$。$T&lt;1$ 放大 logit 差异，使分布更尖；$T&gt;1$ 让分布更平。</li>
+                </ul>
+            </div>
+
             <div class="compare-grid">
-                <div class="compare-card">
-                    <h3>训练</h3>
-                    <p>正确历史全部已知；各位置可并行预测；早期错误不会改写本样本后面的输入。</p>
-                </div>
-                <div class="compare-card">
-                    <h3>生成</h3>
-                    <p>下一 token 尚不存在；必须把自己的输出接回输入；前面的错误会改变后续条件。</p>
-                </div>
+                <div class="compare-card"><h3>训练</h3><p>输入真实前缀；一次 forward 计算所有位置；模型的早期错误不会改写本样本后面的输入。</p></div>
+                <div class="compare-card"><h3>生成</h3><p>输入自己的历史输出；通常逐步生成；一个错误会改变后续所有条件，这就是 exposure bias 的来源。</p></div>
             </div>
-            <p>训练和自由生成条件不完全相同，常被称为 exposure bias 或 train–inference mismatch。但这不代表 teacher forcing 是错误方法；它让大规模训练高效而稳定，代价是推理时必须处理自身输出造成的分布偏移。</p>
 
-            <h2>5. 为什么一个简单目标会学到很多能力？</h2>
-            <p>要准确预测文本后续，模型经常必须利用语法、语义、事实、篇章结构和任务格式。数据规模扩大后，不同能力共享一套表示和参数，于是 next-token objective 成为一个通用训练接口。</p>
-            <p>但它不保证模型学到“真实世界的正确因果模型”。训练目标只要求拟合数据分布：数据里的偏见、错误和表面捷径也会被学习。指令遵循、事实可靠性和安全性通常还需要后训练或外部工具。</p>
+            <h2>8. 为什么 next-token prediction 能学到结构</h2>
+            <p>目标本身简单，但要把正确 token 的概率持续推高，模型必须利用数据中可预测的规律。看一个极小语料：</p>
+            <pre><code>Paris is the capital of France
+Tokyo is the capital of Japan
+Ottawa is the capital of Canada</code></pre>
+            <p>若只记局部二元组，看到 <code>capital of</code> 后无法确定国家；要进一步降低 loss，模型必须利用更早出现的城市。类似地，代码需要变量和括号对应，长文本需要人物与论点一致。规模扩大后，大量任务共享同一预测接口。</p>
+            <p>但这个目标只奖励“符合训练分布”，不直接奖励真实、因果、安全或有帮助。错误事实和表面捷径也能降低 loss，所以还需要数据治理、后训练、检索和工具。</p>
 
-            <h2>6. 放到机器人动作模型里</h2>
-            <p>如果观测 $o$ 包含图像、语言指令和本体状态，动作序列也可以自回归分解：</p>
+            <h2>9. 同一个逻辑怎样进入机器人动作模型</h2>
+            <p>若观测 $o$ 包含图像、语言和本体状态，离散动作也可自回归：</p>
             <div class="equation">$$p(a_{1:T}\mid o)=\prod_{t=1}^{T}p(a_t\mid o,a_{&lt;t})$$</div>
-            <p>与文本相同的是“过去条件下预测下一步”；不同的是动作可能是连续值，而且控制系统要求低延迟、平滑、闭环纠错。因此机器人模型可能预测离散 action token，也可能生成连续 action chunk，或者使用 diffusion / flow matching 并行产生一段动作。</p>
-            <div class="concept-callout">
-                <strong>重要边界：</strong>
-                <p>自回归描述的是概率分解和生成顺序，不等于语言，不等于离散输出，也不等于 Transformer。</p>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 7：把连续位移量化成 action token</p>
+                <p>假设末端 $\Delta x$ 范围是 $[-0.05,0.05]$ 米，用 256 个等宽 bin。真实动作 $\Delta x=0.012$ 米：</p>
+                <div class="calculation-stack">
+                    <p>归一化位置：$(0.012-(-0.05))/0.10=0.62$。</p>
+                    <p>Token ID：$\lfloor0.62\times256\rfloor=158$。</p>
+                    <p>若用 bin 中心解码：$-0.05+(158.5/256)\times0.10\approx0.01191$ 米。</p>
+                    <p>仅量化带来的误差约 $0.00009$ 米，也就是 $0.09$ mm。</p>
+                </div>
+                <p>维度更多、范围更大或 bin 更少时，量化误差会增加；逐维自回归还会引入延迟。因此现代机器人策略也常直接生成连续 action chunk，或使用 diffusion / flow matching。</p>
             </div>
+
+            <div class="concept-callout"><strong>重要边界：</strong><p>“自回归”描述概率怎样分解和样本怎样依次产生。它不等于语言、不等于离散输出，也不等于 Transformer；连续变量同样可以自回归建模。</p></div>
 
             <section class="learning-check">
-                <h3>自测</h3>
-                <details><summary>1. 为什么不能把 token ID 当作有大小关系的连续数值？</summary><p>它只是类别编号；数值距离不携带语义。Embedding lookup 为每个类别提供独立的可学习向量。</p></details>
-                <details><summary>2. 自回归训练为什么能并行，推理通常为什么不能？</summary><p>训练时正确序列完整可见，causal mask 能让所有位置同时预测下一 token；推理时第 $t+1$ 步输入依赖第 $t$ 步刚生成的结果。</p></details>
-                <details><summary>3. Cross-entropy 与 maximum likelihood 的关系是什么？</summary><p>逐 token 的交叉熵是正确 token 条件概率的负对数；求和即序列的负 log-likelihood，所以最小化前者等价于最大化后者。</p></details>
+                <h3>自测：最好先拿纸算，再展开答案</h3>
+                <details><summary>1. 词表大小 10,000、embedding width 512，embedding matrix 有多少参数？</summary><p>$10{,}000\times512=5{,}120{,}000$ 个参数；若用 fp16，仅该矩阵权重约占 10.24 MB，不含梯度和 optimizer state。</p></details>
+                <details><summary>2. ID 序列是 [2, 4, 2]，embedding 输出的三行有什么关系？</summary><p>第 1、3 行都查 $E[2]$，所以 input embedding 相同；加入不同位置并经过 attention 后，hidden state 通常不同。</p></details>
+                <details><summary>3. 正确 token 概率从 0.25 提升到 0.50，cross-entropy 各是多少？</summary><p>$-\ln0.25=1.386$，$-\ln0.50=0.693$，loss 减少 0.693。</p></details>
+                <details><summary>4. 为什么 causal mask 允许训练并行，却没有泄漏未来？</summary><p>所有 query 同时计算，但每个位置在 softmax 前把未来 key 的 score 设为 $-\infty$，对应权重严格为 0。</p></details>
+                <details><summary>5. Teacher forcing 与 greedy decoding 的输入差别是什么？</summary><p>Teacher forcing 的下一位置总拿真实历史；greedy decoding 拿模型自己上一轮选出的最高概率 token。</p></details>
             </section>
 
             <div class="source-list">
                 <h3>原始资料</h3>
-                <p><a href="https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf">Generative Pre-Training</a> 展示了用语言建模预训练，再迁移到多个下游任务的路线。</p>
+                <p><a href="https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf">Generative Pre-Training</a> 展示了语言建模预训练再迁移的路线。下一篇会把这里暂时当作黑箱的 Transformer 拆开，逐项计算 Q、K、V 与 attention。</p>
             </div>
             <nav class="article-series-nav"><a href="/notes/llm-cv/">← 系列目录</a><a href="/notes/llm-cv/02-attention-transformer/">下一篇：Attention 与 Transformer →</a></nav>
         </div>
     </article>
 </main>
 <footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+<script>
+(() => {
+    const steps = [
+        {pick: 'I', probs: [['I', 0.80], ['robot', 0.12], ['<EOS>', 0.08]]},
+        {pick: 'love', probs: [['love', 0.70], ['build', 0.20], ['<EOS>', 0.10]]},
+        {pick: 'robot', probs: [['robot', 0.60], ['AI', 0.25], ['<EOS>', 0.15]]},
+        {pick: 's', probs: [['s', 0.90], ['<EOS>', 0.10]]},
+        {pick: '<EOS>', probs: [['<EOS>', 0.92], ['today', 0.05], ['too', 0.03]]}
+    ];
+    const play = document.getElementById('ar-play');
+    const reset = document.getElementById('ar-reset');
+    const tokens = document.getElementById('ar-tokens');
+    const bars = document.getElementById('ar-bars');
+    const label = document.getElementById('ar-step-label');
+    if (!play || !reset || !tokens || !bars || !label) return;
+    let index = 0;
+    let timer = null;
+
+    function renderBars(step) {
+        bars.innerHTML = '';
+        step.probs.forEach(([name, probability]) => {
+            const row = document.createElement('div');
+            row.className = 'probability-row' + (name === step.pick ? ' is-picked' : '');
+            row.innerHTML = `<code>${name.replace('<', '&lt;').replace('>', '&gt;')}</code><span class="probability-track"><i style="width:${probability * 100}%"></i></span><strong>${(probability * 100).toFixed(0)}%</strong>`;
+            bars.appendChild(row);
+        });
+    }
+
+    function advance() {
+        if (index >= steps.length) {
+            clearInterval(timer);
+            timer = null;
+            play.disabled = false;
+            play.textContent = '↻ 再播放一次';
+            label.textContent = '生成结束：遇到 <EOS>';
+            return;
+        }
+        const step = steps[index];
+        renderBars(step);
+        const token = document.createElement('span');
+        token.textContent = step.pick;
+        token.className = 'token-new';
+        tokens.appendChild(token);
+        label.textContent = `第 ${index + 1} 步：选择 ${step.pick}`;
+        index += 1;
+    }
+
+    function resetDemo() {
+        if (timer) clearInterval(timer);
+        timer = null;
+        index = 0;
+        tokens.innerHTML = '<span>&lt;BOS&gt;</span>';
+        bars.innerHTML = '';
+        label.textContent = '等待播放';
+        play.disabled = false;
+        play.textContent = '▶ 播放逐 token 生成';
+    }
+
+    play.addEventListener('click', () => {
+        if (index >= steps.length) resetDemo();
+        play.disabled = true;
+        advance();
+        timer = setInterval(advance, 1100);
+    });
+    reset.addEventListener('click', resetDemo);
+})();
+</script>
 </body>
 </html>

@@ -1208,6 +1208,331 @@ a:hover {
     margin-bottom: 0;
 }
 
+.learning-route,
+.process-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.learning-route {
+    margin: 1.4rem 0 2.3rem;
+    color: var(--muted);
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.86rem;
+}
+
+.learning-route span {
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.62);
+    color: var(--ink);
+}
+
+.learning-route b {
+    color: var(--accent);
+}
+
+.learning-figure {
+    overflow-x: auto;
+    margin: 1.8rem 0;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.62);
+    box-shadow: 0 16px 42px rgba(75, 57, 39, 0.06);
+}
+
+.learning-figure figcaption {
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 0.88rem;
+    line-height: 1.55;
+}
+
+.process-flow {
+    justify-content: center;
+}
+
+.process-step {
+    display: flex;
+    min-width: 142px;
+    min-height: 76px;
+    flex-direction: column;
+    justify-content: center;
+    padding: 12px 14px;
+    border: 1px solid rgba(31, 111, 120, 0.26);
+    border-radius: 8px;
+    background: rgba(31, 111, 120, 0.07);
+}
+
+.process-step small {
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.72rem;
+}
+
+.process-step strong {
+    color: var(--ink);
+    font-size: 0.88rem;
+}
+
+.process-arrow {
+    color: var(--accent);
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.numeric-example {
+    overflow-x: auto;
+    margin: 1.6rem 0;
+    padding: 20px;
+    border: 1px solid rgba(178, 112, 66, 0.32);
+    border-radius: 9px;
+    background: rgba(178, 112, 66, 0.07);
+}
+
+.numeric-example__title {
+    margin: 0 0 14px;
+    color: #8b4f2c;
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.numeric-example > :last-child,
+.calculation-stack > :last-child {
+    margin-bottom: 0;
+}
+
+.calculation-line {
+    overflow-x: auto;
+    margin: 12px 0;
+    padding: 12px 14px;
+    border-left: 3px solid var(--accent);
+    background: rgba(255, 255, 255, 0.66);
+}
+
+.calculation-line code {
+    padding: 0;
+    background: transparent;
+    white-space: nowrap;
+}
+
+.calculation-stack {
+    margin: 14px 0;
+    padding: 14px 16px;
+    border-left: 3px solid var(--accent-2);
+    background: rgba(255, 255, 255, 0.58);
+}
+
+.calculation-stack p {
+    margin-bottom: 8px;
+}
+
+.matrix-wrap {
+    overflow-x: auto;
+    margin: 1.5rem 0;
+}
+
+.matrix-table,
+.calculation-table {
+    min-width: 600px;
+    background: rgba(255, 255, 255, 0.58);
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88rem !important;
+}
+
+.matrix-highlight {
+    background: rgba(31, 111, 120, 0.12);
+    color: var(--accent-2);
+    font-weight: 700;
+}
+
+.shift-diagram {
+    display: grid;
+    grid-template-columns: minmax(92px, 1.2fr) repeat(5, minmax(70px, 1fr));
+    gap: 8px;
+    min-width: 560px;
+    text-align: center;
+}
+
+.shift-diagram code,
+.shift-diagram span,
+.shift-label {
+    padding: 10px 8px;
+    border-radius: 6px;
+}
+
+.shift-diagram code {
+    border: 1px solid rgba(31, 111, 120, 0.26);
+    background: rgba(31, 111, 120, 0.08);
+}
+
+.shift-diagram span {
+    color: var(--muted);
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.shift-label {
+    color: var(--ink);
+    font-weight: 700;
+    text-align: left;
+}
+
+.mask-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(42px, 62px));
+    gap: 6px;
+    justify-content: center;
+    text-align: center;
+}
+
+.mask-grid > span,
+.mask-grid > strong {
+    display: grid;
+    min-height: 42px;
+    place-items: center;
+    border-radius: 6px;
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.mask-yes {
+    background: rgba(31, 111, 120, 0.14);
+    color: var(--accent-2);
+    font-weight: 700;
+}
+
+.mask-no {
+    background: rgba(178, 112, 66, 0.08);
+    color: #aa8877;
+}
+
+.autoregressive-demo {
+    background: linear-gradient(145deg, rgba(31, 111, 120, 0.08), rgba(255, 255, 255, 0.72));
+}
+
+.demo-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+.demo-controls button {
+    padding: 8px 12px;
+    border: 1px solid var(--accent-2);
+    border-radius: 999px;
+    background: var(--accent-2);
+    color: #fff;
+    cursor: pointer;
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem;
+}
+
+.demo-controls button + button {
+    background: transparent;
+    color: var(--accent-2);
+}
+
+.demo-controls button:disabled {
+    cursor: wait;
+    opacity: 0.54;
+}
+
+#ar-step-label {
+    margin-left: auto;
+    color: var(--muted);
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8rem;
+}
+
+.token-stage {
+    display: flex;
+    min-height: 54px;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 18px;
+    padding: 12px;
+    border: 1px dashed rgba(31, 111, 120, 0.34);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.62);
+}
+
+.token-stage span {
+    padding: 7px 10px;
+    border-radius: 6px;
+    background: var(--ink);
+    color: #fff;
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88rem;
+}
+
+.token-stage .token-new {
+    animation: token-arrive 420ms ease both;
+    background: var(--accent);
+}
+
+@keyframes token-arrive {
+    from { opacity: 0; transform: translateY(8px) scale(0.94); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.probability-bars {
+    display: grid;
+    gap: 8px;
+    min-height: 106px;
+}
+
+.probability-row {
+    display: grid;
+    grid-template-columns: minmax(68px, 90px) 1fr 48px;
+    gap: 10px;
+    align-items: center;
+    color: var(--muted);
+}
+
+.probability-row code {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.probability-track {
+    overflow: hidden;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(75, 57, 39, 0.10);
+}
+
+.probability-track i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #a9a29a;
+    transition: width 320ms ease;
+}
+
+.probability-row.is-picked {
+    color: var(--accent-2);
+}
+
+.probability-row.is-picked .probability-track i {
+    background: var(--accent-2);
+}
+
+.probability-row strong {
+    font-family: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8rem;
+    text-align: right;
+}
+
 .source-list {
     margin-top: 2.2rem;
     padding: 18px 20px;
@@ -1401,6 +1726,30 @@ footer {
     .roadmap-list,
     .series-grid {
         grid-template-columns: 1fr;
+    }
+
+    .learning-figure,
+    .numeric-example {
+        padding: 15px;
+    }
+
+    .process-flow {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .process-step {
+        width: 100%;
+    }
+
+    .process-arrow {
+        align-self: center;
+        transform: rotate(90deg);
+    }
+
+    #ar-step-label {
+        width: 100%;
+        margin-left: 0;
     }
 
     .section-heading {
