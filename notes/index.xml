@@ -4,10 +4,16 @@
     <title>Blog on Qingwei Ben</title>
     <link>https://www.qingweiben.com/notes/</link>
     <description>Recent content in Blog on Qingwei Ben</description>
-    <generator>Hugo</generator>
     <language>en-us</language>
-    <lastBuildDate>Sat, 20 Apr 2024 00:00:00 +0000</lastBuildDate>
+    <lastBuildDate>Sat, 29 Aug 2026 00:00:00 -0700</lastBuildDate>
     <atom:link href="https://www.qingweiben.com/notes/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>过去十年 LLM 与 CV</title>
+      <link>https://www.qingweiben.com/notes/llm-cv-core-techniques/</link>
+      <pubDate>Sat, 29 Aug 2026 00:00:00 -0700</pubDate>
+      <guid>https://www.qingweiben.com/notes/llm-cv-core-techniques/</guid>
+      <description>从问题、机制、最小例子和真实系统出发，理解真正沉淀下来的核心技术。第一章：Token、Embedding 与自回归训练。</description>
+    </item>
     <item>
       <title>Note of Quaternion</title>
       <link>https://www.qingweiben.com/notes/quaternion/</link>
