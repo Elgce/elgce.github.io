@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="理解机器人电机驱动器的 MOSFET 三相逆变桥、PWM、换向、FOC、电流采样和级联控制环。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 驱动器、PWM 与 FOC</title>
+</head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">03 / 09 · 初稿待学习</span><p class="eyebrow">从直流母线合成旋转磁场</p><h1>驱动器、PWM 与 FOC</h1><p class="learning-header__lead">计算机不能直接驱动电机绕组。驱动器一边是几十伏、几十安的功率电子，一边是微控制器、编码器与控制算法；它把目标力矩变成精确的三相电流，并在故障时比上位机更快地关断。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>电机驱动器的核心闭环是：测转子角度和相电流，把期望力矩换成 <code>Iq</code>，用三相逆变桥与 PWM 追踪该电流；位置和速度只是包在它外面的更慢控制环。</strong></p></div>
+
+<h2>1. 驱动器里有什么</h2>
+<pre><code>DC bus
+  ↓
+bulk capacitors → 3 half-bridges / 6 MOSFETs → U V W phases → motor
+                         ↑ gate driver
+                         ↑ PWM
+encoder ─→ angle ─→ MCU / FOC ←─ phase current sensors
+                          ↑
+               command + limits + watchdog</code></pre>
+<p>此外还常有母线电压、板温/电机温度、制动电阻、隔离通信、预充/继电器接口以及硬件过流比较器。软件崩溃时，硬件过流和栅极驱动器仍应能迅速关断 MOSFET。</p>
+
+<h2>2. 半桥和三相逆变器</h2>
+<p>一个半桥用高侧和低侧 MOSFET 把相线切到正母线或负母线；三相电机需要三组半桥。上下管绝不能同时导通，否则形成 shoot-through 直通短路。驱动器会插入短暂 dead time，但 dead time 也会引入电压误差和转矩纹波。</p>
+
+<h2>3. PWM 不是“忽大忽小的力矩命令”</h2>
+<p>PWM 以固定频率快速切换母线，通过 duty cycle 合成期望平均相电压。绕组电感让电流相对平滑，电流环再根据误差逐周期调整 duty。开关频率越高，纹波和可闻噪声可能更小，但 MOSFET 开关损耗、驱动损耗和 EMI 会增加。</p>
+<div class="equation"><code>di/dt ≈ (Vapplied − R·i − back_EMF) / L</code></div>
+<p>因此高转速时 back-EMF 吃掉电压裕量，即使命令很大，实际电流也追不上；这就是转矩—转速曲线进入电压受限区。</p>
+
+<h2>4. 六步换向与 FOC</h2>
+<div class="compare-grid">
+<div class="compare-card"><h3>六步 / trapezoidal</h3><p>每个电角周期按六个扇区导通相对固定的两相。逻辑简单、成本低，但转矩纹波和声学噪声通常更大。</p></div>
+<div class="compare-card"><h3>FOC / sinusoidal</h3><p>把三相电流投影到随转子旋转的 d-q 坐标，让磁通分量与转矩分量近似解耦，便于平滑精确控制。</p></div>
+</div>
+
+<h2>5. 一次 FOC 周期</h2>
+<ol><li>ADC 在合适的 PWM 时刻采样两相或三相电流。</li><li>由机械编码器角度乘极对数，并加电角度 offset，得到电角度。</li><li>Clarke/Park 变换把 <code>ia, ib, ic</code> 变成旋转坐标的 <code>Id, Iq</code>。</li><li>PI 电流环比较 <code>Id/Iq</code> 目标与测量，输出 <code>Vd/Vq</code>。</li><li>逆 Park + SVPWM 把电压命令变成三相 duty。</li><li>检查过流、过压、欠压、编码器失锁和温度，再进入下一周期。</li></ol>
+<p>表贴式 PMSM 常把 <code>Id</code> 目标设为 0、用 <code>Iq</code> 产生转矩；弱磁、高凸极电机或 MTPA 控制会使用非零 <code>Id</code>。所以“FOC 就是 <code>Id=0</code>”不是普遍定义。</p>
+
+<h2>6. 三层级联闭环</h2>
+<pre><code>q_des ─→ [position P] ─→ velocity_des
+              ↓
+dq_des → [velocity PI] ─→ torque / Iq_des
+              ↓
+        [current PI + FOC] ─→ PWM ─→ motor
+              ↑                         │
+              └──── encoder + current ──┘</code></pre>
+<table><thead><tr><th>环</th><th>直接控制</th><th>相对速度</th></tr></thead><tbody>
+<tr><td>电流/转矩环</td><td>相电流、磁场</td><td>最快，常与 PWM 同数量级</td></tr>
+<tr><td>速度环</td><td>角速度</td><td>中间，必须低于电流环带宽</td></tr>
+<tr><td>位置环</td><td>关节/转子位置</td><td>最外层，受机械共振和通信限制</td></tr>
+</tbody></table>
+<p>确切频率取决于电机电感、PWM、采样、CPU 和机械系统。常见“20 kHz FOC、1 kHz 关节命令”只是数量级示例，不是所有机器人都必须如此。</p>
+
+<h2>7. 机器人常见的混合命令</h2>
+<div class="equation"><code>τcmd = τff + Kp(qdes − q) + Kd(dqdes − dq)</code></div>
+<p>上位机发送目标位置、速度、前馈力矩和 <code>Kp/Kd</code>，驱动器或低层控制板把它转成最终力矩。设 <code>Kp=Kd=0</code> 接近纯力矩模式；只有 <code>Kp</code> 会表现成虚拟弹簧；<code>Kd</code> 提供阻尼。增益过高、编码器噪声、延迟或柔性传动都可能引发振荡。</p>
+
+<h2>8. 校准不是可选装饰</h2>
+<ul><li>测相电阻、相电感，设置合理的电流环参数。</li><li>识别极对数、相序、编码器方向和电角度零偏。</li><li>确认编码器机械零点与关节零位、减速比和方向。</li><li>设置 phase current、DC current、速度、温度、母线电压和位置软硬限位。</li></ul>
+<p>相电流上限与电池电流上限不是同一个数字；PWM 与三相能量交换会让二者在不同工作点差很多。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>位置控制不是驱动器直接“把电机拉到角度”。它通常先把位置误差变成速度，再把速度误差变成力矩/电流，最后由 FOC 生成 PWM。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么 FOC 需要电角度而不是只要机械角度？</summary><p>绕组磁场相对于磁极周期决定换向；电角度约等于机械角度乘极对数再加校准偏移。</p></details>
+<details><summary>2. 为什么高速时命令电流可能大于实际电流？</summary><p>反电动势接近可合成电压上限，电流环已经把 duty 用满，仍没有足够绕组电压让电流继续上升。</p></details>
+<details><summary>3. 为什么不能只依靠上位机的软件电流限制？</summary><p>上位机可能掉线或延迟；短路和 shoot-through 需要驱动器本地硬件在微秒级保护。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://www.ti.com/lit/ab/slva939b/slva939b.pdf">TI FOC Made Easy</a> 解释三相逆变与 FOC；<a href="https://docs.odriverobotics.com/v/latest/manual/control.html">ODrive Controller</a> 展示位置—速度—电流级联环；<a href="https://docs.odriverobotics.com/v/latest/articles/motor-parameters.html">ODrive Motor Calibration</a> 说明相电阻/电感校准。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/02-motor-families/">← 上一篇：电机家族</a><a href="/notes/robot-hardware/04-servo-actuator-stack/">下一篇：伺服关节 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

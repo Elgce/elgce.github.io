@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="把机器人电机、驱动、总线、电池、计算与安全接成整机，并用力矩转速热通信指标完成关节选型。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 机器人整机架构与选型</title>
+</head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">09 / 09 · 初稿待学习</span><p class="eyebrow">从需求闭合到可上电整机</p><h1>整机架构、指标与选型</h1><p class="learning-header__lead">整机设计不是挑一个“最大力矩”关节，再把数量乘起来。机械负载给出转矩/速度轨迹，电机与减速器把它变成电流/电压，热和电池限制持续时间，总线和时钟限制控制带宽，安全链决定故障时还能做什么。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>机器人硬件选型必须闭合五本账：力矩—转速、惯量—带宽、电流—电压、功率—能量、峰值—热；再用通信时序和故障状态把它们连成系统。</strong></p></div>
+
+<h2>1. 一台现代机器人的两张网络</h2>
+<pre><code>DATA / CONTROL
+camera ─┐
+LiDAR ──┼→ perception computer → policy/planner → real-time controller
+IMU ────┘                                      │
+                                  EtherCAT / CAN / RS-485
+                                               │
+                                      drives ↔ encoders
+
+POWER / SAFETY
+battery+BMS → fuse/precharge/contactor → DC bus → drives → motors
+                                  └→ DC/DC → compute+sensors
+E-stop + watchdog + limits ─→ safety controller ─→ torque-off/contactor</code></pre>
+<p>数据网和电源网共享物理机身，却有不同设计规则。安全链要能在 perception、policy、普通 OS 或主通信失效时仍执行最后保护。</p>
+
+<h2>2. 控制频率不是一个数字</h2>
+<table><thead><tr><th>层</th><th>典型职责</th><th>示意数量级（非标准）</th></tr></thead><tbody>
+<tr><td>PWM/电流环</td><td>三相电流、硬件保护</td><td>10–40 kHz</td></tr>
+<tr><td>drive/joint loop</td><td>位置、速度、阻抗、状态</td><td>1–5 kHz</td></tr>
+<tr><td>whole-body control</td><td>全身动力学、接触力分配</td><td>500 Hz–2 kHz</td></tr>
+<tr><td>learned policy</td><td>动作/目标生成</td><td>30–200 Hz</td></tr>
+<tr><td>vision/planning</td><td>感知、地图、任务</td><td>5–60 Hz</td></tr>
+</tbody></table>
+<p>真实架构可能合并或拆开这些层。关键是为每条链定义采样时刻、deadline、worst-case latency、jitter、watchdog 与插值/保持方式，而不是让所有模块“尽量快跑”。</p>
+
+<h2>3. 从任务得到关节负载</h2>
+<ol><li>列出姿态、payload、接触和加速度的 worst credible cases。</li><li>通过静力学/逆动力学得到每个关节 <code>τ(t), ω(t)</code>，而非单一峰值。</li><li>加入碰撞、模型误差和控制裕量，但不要用一个随意 safety factor 掩盖未知。</li><li>计算机械功率 <code>P=τω</code>、RMS torque 和 duty cycle。</li><li>检查结构/齿轮冲击载荷与 bearing load，而不仅是电机电磁力矩。</li></ol>
+
+<h2>4. 一个简化膝关节例子</h2>
+<p>假设某姿态下膝关节要支撑等效 10 kg 质量，重力力臂 0.20 m：</p>
+<div class="equation"><code>τstatic = mgl = 10 × 9.81 × 0.20 ≈ 19.6 N·m</code></div>
+<p>若动态分析给出 3 倍瞬态，目标约 59 N·m。选 <code>N=9</code>、效率 <code>η=0.9</code>：</p>
+<div class="equation"><code>τmotor ≈ 59/(9×0.9) ≈ 7.3 N·m　　ωmotor = 9ωjoint</code></div>
+<p>若 <code>Kt=0.20 N·m/A</code>（仅示例且先确认电流定义），峰值 <code>Iq≈36.5 A</code>。接下来仍不能宣布选型完成，还要验证：</p>
+<ul><li>目标关节速度下 back-EMF + 电阻压降是否低于可用母线电压；</li><li>36.5 A 能保持多久，驱动器、绕组、连接器和电池是否都允许；</li><li>动作周期的 RMS 电流是否满足连续热边界；</li><li>转子惯量经 <code>N²</code> 反射后是否破坏带宽/碰撞性能；</li><li>齿轮、输出轴承和外壳能否承受冲击与倾覆力矩。</li></ul>
+<p>Unitree G1 页面给出的膝关节最大力矩 90/120 N·m 是理解真实量级的参照，但它没有替代上述任务、连续热和速度曲线分析。</p>
+
+<h2>5. 规格书必须追问的指标</h2>
+<table><thead><tr><th>类别</th><th>至少要拿到</th></tr></thead><tbody>
+<tr><td>力矩/速度</td><td>连续与峰值、峰值秒数/占空比、完整 torque-speed curve、测试母线电压和温度</td></tr>
+<tr><td>电气</td><td>工作/绝对电压、phase/DC continuous &amp; peak current、<code>Kt/Kv</code> 定义、R/L、回生边界</td></tr>
+<tr><td>机械</td><td>减速比/效率、质量、转子与输出惯量、回差、刚度、最大径向/轴向/倾覆载荷</td></tr>
+<tr><td>反馈/控制</td><td>编码器 resolution + accuracy、update/latency、控制模式、带宽、增益/限位、力矩估计误差</td></tr>
+<tr><td>通信</td><td>物理层、协议、bitrate、最大 control rate、同步、CRC/watchdog、bus load 与故障行为</td></tr>
+<tr><td>环境/寿命</td><td>散热条件、温度、IP、冲击振动、齿轮/轴承寿命、线缆弯折和连接器插拔次数</td></tr>
+<tr><td>安全</td><td>硬件过流/过压/过温、STO/disable、机械制动、失联状态、认证边界</td></tr>
+</tbody></table>
+
+<h2>6. 电池与母线按整条轨迹选</h2>
+<div class="equation"><code>Pbus(t) ≈ Σ τi(t)ωi(t)/ηi + Pcompute + Psensors + losses</code></div>
+<p>正值是放电，负值可能回生。用时间序列检查峰值功率、RMS/平均功率、回生峰值、SOC/温度下的电压下陷，再决定 cell、并联数、BMS、接触器、保险丝、铜线和 DC/DC。不能把每个关节峰值功率直接相加当常态，也不能假设它们永远不会同时峰值。</p>
+
+<h2>7. 总线按 deadline 和同步选</h2>
+<ul><li>先定义每轴 command/state 字段、字节数与 update rate，再算带宽。</li><li>把 header、CRC、仲裁、inter-frame gap、reply turnaround 和重传算进去。</li><li>区分“消息在 deadline 前到达”和“所有编码器同时采样”。</li><li>多轴硬实时/同步优先评估 EtherCAT；低成本鲁棒小帧评估 CAN-FD；集成关节可用高速 RS-485；计算机消息层可用 Ethernet/DDS。</li><li>实际选择还受现成 drive、线束、开源栈、认证、调试工具和团队经验约束。</li></ul>
+
+<h2>8. 从零搭建的 bring-up 顺序</h2>
+<ol><li><strong>无电检查：</strong>原理图、pinout、极性、绝缘、接地、终端与机械限位。</li><li><strong>限流低压：</strong>台式电源、小保险丝，先验证逻辑 rail、通信与传感器。</li><li><strong>单驱动无负载：</strong>确认相序、编码器方向、电角 offset、硬件保护。</li><li><strong>单关节低增益：</strong>悬空/治具固定，逐步测试电流、速度、位置与限位。</li><li><strong>测 torque-speed/thermal：</strong>不要只做“转起来了”的 demo。</li><li><strong>总线扩展：</strong>逐节点增加并监测 bus load、jitter、CRC/error counter。</li><li><strong>整机吊装：</strong>低姿态、软限位、急停人员到位，先验证状态机和掉线。</li><li><strong>故障注入：</strong>拔通信、模拟 encoder 错误/过温/低电、按急停，验证确实进入预期状态。</li></ol>
+
+<h2>9. 一份可读的整机 BOM</h2>
+<table><thead><tr><th>子系统</th><th>硬件</th><th>设计输出</th></tr></thead><tbody>
+<tr><td>关节</td><td>motor, drive, encoder(s), gearbox, bearings, housing</td><td>torque-speed-thermal envelope</td></tr>
+<tr><td>电源</td><td>cells, BMS, fuse, precharge, contactor, DC/DC, brake</td><td>power/energy/fault budget</td></tr>
+<tr><td>控制</td><td>real-time MCU/CPU, main compute, storage</td><td>rate/deadline/watchdog table</td></tr>
+<tr><td>通信</td><td>transceivers, ESC/NIC, cable, connector, isolation</td><td>topology, timing and bus-load budget</td></tr>
+<tr><td>感知</td><td>IMU, encoders, F/T, cameras, LiDAR, thermistors</td><td>frame/time/calibration registry</td></tr>
+<tr><td>安全</td><td>E-stop, safety controller, STO/enable, brakes</td><td>hazard analysis and safe-state machine</td></tr>
+</tbody></table>
+
+<div class="concept-callout"><strong>最后一个常见误解：</strong><p>“最大力矩、最高速度、最高带宽、最低重量”往往来自不同工作点，不能拼成一个想象中的最佳关节。真正的规格是一个带电压、温度、时间和控制条件的可行区域。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么只用静态重力矩选膝关节会失败？</summary><p>没有包含加速度、落地冲击、速度下的电压限制、峰值持续时间、RMS 热和结构载荷。</p></details>
+<details><summary>2. 为什么 policy 50 Hz 不代表关节也只能 50 Hz 控制？</summary><p>低层 drive/current/impedance loop 可以在 kHz 级运行，并在 policy 更新之间保持或插值目标。</p></details>
+<details><summary>3. 一个供应商只给峰值力矩，应追问什么？</summary><p>至少追问对应速度、母线电压、电流定义、允许秒数/占空比、初始/环境温度、冷却、齿轮与驱动限制，以及完整 torque-speed curve。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://www.unitree.com/mobile/g1/">Unitree G1 Parameters</a> 提供 35 kg、膝关节 90/120 N·m、13S 电池等整机量级；<a href="https://docs.odriverobotics.com/v/latest/articles/component-selection.html">ODrive Component Selection</a> 连接 <code>Kv/Kt</code>、电压、电流和散热；<a href="https://www.ethercat.org/en/technology.html">EtherCAT Technology</a> 给出多轴过程数据和同步机制；<a href="https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/g1/low_level/g1_dual_arm_example.cpp">G1 Low-level Example</a> 展示 29 关节的 DDS 命令/状态边界。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/08-power-safety-thermal/">← 上一篇：电源与安全</a><a href="/notes/robot-hardware/">回到系列目录 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

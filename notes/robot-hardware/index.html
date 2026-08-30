@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="从零理解机器人电路、电机、驱动器、伺服关节、传感器、通信总线、电源安全和整机选型指标。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | 机器人电机与硬件基础</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+    <nav class="home-nav blog-topbar" aria-label="Blog navigation"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/">All Posts</a><a href="/">Home</a></div></nav>
+    <header class="blog-hero learning-header">
+        <span class="draft-status">Learning series · first draft</span>
+        <p class="eyebrow">9 notes / electron → whole robot</p>
+        <h1>机器人电机与硬件基础</h1>
+        <p class="learning-header__lead">从电压、电流和一只 MOSFET 出发，一路搭到电机驱动器、闭环伺服关节、编码器、RS-485 / CAN / EtherCAT、电池与整机控制栈。目标是让零基础读者能看懂一张机器人硬件框图、读懂关键规格，并知道数字之间怎样互相制约。</p>
+        <div class="series-progress"><span><strong>9</strong> 篇独立文章</span><span><strong>4</strong> 条主线：电、机、控、通</span><span>资料快照：<strong>2026-08-29</strong></span></div>
+    </header>
+
+    <section class="series-grid" aria-label="Robot hardware learning series">
+        <p class="series-part-label">Part I · 先知道电和电机在做什么</p>
+        <a class="series-card" href="/notes/robot-hardware/01-electricity-and-circuits/"><div class="series-card__top"><span class="series-card__number">01</span><span>电路起点</span></div><h2>电压、电流、功率与真实导线</h2><p>从欧姆定律到电容、电感、地、保险丝与反电动势，建立不会混淆单位的直觉。</p></a>
+        <a class="series-card" href="/notes/robot-hardware/02-motor-families/"><div class="series-card__top"><span class="series-card__number">02</span><span>电机家族</span></div><h2>电机为什么转，几类电机差在哪</h2><p>有刷 DC、BLDC/PMSM、步进、感应与直线执行器的换向方式、优势和边界。</p></a>
+        <a class="series-card" href="/notes/robot-hardware/03-drivers-pwm-foc/"><div class="series-card__top"><span class="series-card__number">03</span><span>功率电子与控制</span></div><h2>驱动器、PWM 与 FOC</h2><p>六只 MOSFET 如何把直流电池变成三相磁场，电流环怎样把安培变成力矩。</p></a>
+
+        <p class="series-part-label">Part II · 从一台电机变成一个机器人关节</p>
+        <a class="series-card" href="/notes/robot-hardware/04-servo-actuator-stack/"><div class="series-card__top"><span class="series-card__number">04</span><span>闭环伺服</span></div><h2>电机怎样变成“舵机”</h2><p>Servo 不是某种电机，而是电机、反馈、驱动与控制器组成的闭环系统。</p></a>
+        <a class="series-card" href="/notes/robot-hardware/05-transmissions-and-mechanics/"><div class="series-card__top"><span class="series-card__number">05</span><span>机械传动</span></div><h2>减速器、轴承与关节结构</h2><p>行星、谐波、摆线、皮带与直驱如何交换力矩、速度、惯量、回差和可回驱性。</p></a>
+        <a class="series-card" href="/notes/robot-hardware/06-feedback-sensors/"><div class="series-card__top"><span class="series-card__number">06</span><span>感知闭环</span></div><h2>编码器、IMU 与力传感</h2><p>分清分辨率、精度、重复性、带宽和延迟，并理解为什么双编码器很有价值。</p></a>
+
+        <p class="series-part-label">Part III · 把几十个关节接成一台机器人</p>
+        <a class="series-card" href="/notes/robot-hardware/07-robot-communication-buses/"><div class="series-card__top"><span class="series-card__number">07</span><span>底层通信</span></div><h2>高速 485、CAN、EtherCAT 与 DDS</h2><p>从物理层到消息层逐层理解带宽、周期、延迟、抖动、同步与终端电阻。</p></a>
+        <a class="series-card" href="/notes/robot-hardware/08-power-safety-thermal/"><div class="series-card__top"><span class="series-card__number">08</span><span>能量与安全</span></div><h2>电池、母线、BMS、急停与散热</h2><p>电从电芯怎样到关节和计算机，回生能量、浪涌、过流和过温怎样处理。</p></a>
+        <a class="series-card" href="/notes/robot-hardware/09-system-architecture-and-sizing/"><div class="series-card__top"><span class="series-card__number">09</span><span>整机搭建</span></div><h2>整机架构、指标与选型</h2><p>读懂整机框图和规格书，用一个关节例子把力矩、转速、电流、热与通信闭合起来。</p></a>
+    </section>
+    <div class="concept-callout"><strong>全系列最重要的边界：</strong><p>“电机”“驱动器”“伺服”“减速关节”和“整机控制接口”不是同一个对象。比如 G1 的开发者可以通过 Ethernet 上的 DDS 发送关节命令；这不等于 DDS 就是电机绕组旁边的物理总线，也不能据此断言 G1 机内一定使用 EtherCAT 或 RS-485。</p></div>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="理解机器人电池、BMS、母线、DC/DC、保险丝、预充、接触器、急停、回生制动、散热和 EMI。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 电池、电源与安全</title>
+</head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">08 / 09 · 初稿待学习</span><p class="eyebrow">整机可靠性常死在算法之外</p><h1>电池、母线、BMS、急停与散热</h1><p class="learning-header__lead">几十个关节会产生巨大的瞬态功率，还会在落地和减速时把能量送回来。机器人电源必须同时分配能量、限制故障、管理上电浪涌，并让安全关断不依赖正常软件仍然活着。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>BMS 保护电芯，保险丝保护导线，驱动器保护功率器件，急停把系统带到定义好的安全状态；四者职责不同，不能互相替代。</strong></p></div>
+
+<h2>1. 从电芯搭成电池包</h2>
+<ul><li><strong>S（串联数）：</strong>提高包电压。13S 表示 13 组串联；若按 3.7 V 典型电芯估算，名义电压约 48.1 V，但真实范围由化学体系和 BMS 决定。</li><li><strong>P（并联数）：</strong>提高容量与可供电流，并要求电芯匹配和可靠连接。</li><li><strong>Ah：</strong>电荷容量；<strong>Wh ≈ nominal V × Ah</strong> 更接近总能量。</li><li><strong>C-rate：</strong>以容量倍数表示充放电流，但持续/峰值、温度和寿命条件必须看 datasheet。</li><li><strong>内阻：</strong>造成 <code>ΔV = IR</code> 电压下陷和 <code>I²R</code> 发热；SOC 低和低温时往往更明显。</li></ul>
+<p>Unitree G1 公开规格是 13S、9000 mAh smart battery、54 V 5 A charger。这些数字说明一个真实人形的电压和能量数量级，不代表可以绕开原厂 BMS 或改变充电参数。</p>
+
+<h2>2. BMS 做什么、不做什么</h2>
+<table><thead><tr><th>BMS 常做</th><th>仍需整机做</th></tr></thead><tbody>
+<tr><td>单体电压、包电流与温度监测</td><td>支路保险丝和导线/连接器配额</td></tr>
+<tr><td>过充、过放、过流保护</td><td>驱动器微秒级相过流/短路保护</td></tr>
+<tr><td>SOC/SOH 估计与 cell balancing</td><td>急停、torque-off、姿态安全与受控停车</td></tr>
+<tr><td>充放电 MOSFET/接触器管理</td><td>回生功率协调、DC bus 过压吸收</td></tr>
+</tbody></table>
+<p>BMS 触发硬切电可能让机器人突然失去支撑，因此正常控制应在触发硬保护前根据 SOC、温度和电压主动降额并安全坐下。</p>
+
+<h2>3. 电源树怎么画</h2>
+<pre><code>BATTERY + BMS
+   │
+service disconnect ─ fuse ─ precharge ─ main contactor ─ HV/DC bus
+                                                        ├─ leg drives
+                                                        ├─ arm drives
+                                                        ├─ brake chopper
+                                                        └─ isolated/nonisolated DC/DC
+                                                             ├─ compute
+                                                             ├─ sensors
+                                                             └─ logic + safety</code></pre>
+<p>分支应定义额定/峰值电流、线径、连接器、保险丝、压降与回流。计算机电源要能扛住关节峰值导致的母线下陷；传感器/通信可能需要隔离或更干净的 rail。</p>
+
+<h2>4. 预充和接触器</h2>
+<p>驱动器 DC-link 电容在未充电时近似短路。直接插电会产生巨大 inrush、打火并损伤连接器。预充支路先通过电阻限制电流，监测母线接近电池电压后再闭合主接触器；断电时还要考虑电容放电和安全等待时间。</p>
+<p>接触器有额定工作电压、电流、断开 DC 故障电流能力和线圈驱动要求。能承载 100 A 不代表能安全切断 100 A 的直流电弧。</p>
+
+<h2>5. 急停不是普通软件按钮</h2>
+<p>安全动作取决于机器人状态：站立人形立刻切所有力矩可能直接倒下；继续保持位置又可能夹伤人。因此系统要定义 stop category 和可接受风险，例如：</p>
+<ol><li>安全控制器或硬件链检测急停、倾倒、通信/看门狗故障。</li><li>若仍可控，先限力矩、减速或进入支撑姿态。</li><li>在限定时间后触发驱动 disable / STO 等 torque-off 路径。</li><li>必要时断开主接触器；机械制动按重力和掉电状态设计。</li><li>故障锁存，必须显式复位，不因消息恢复自动重启。</li></ol>
+<p>具体实现必须经过整机风险评估；本文是架构直觉，不替代功能安全标准和认证。</p>
+
+<h2>6. 回生能量和母线过压</h2>
+<div class="equation"><code>Pregen ≈ −Σ τjoint ωjoint − losses</code></div>
+<p>关节减速、落地吸收或被外力推动时，驱动器把能量送回母线。可用路径包括：</p>
+<ul><li>电池接受充电；受 SOC、温度、BMS charge current 限制。</li><li>其他关节或计算负载同时消耗。</li><li>brake chopper + resistor 把过剩能量变成热。</li><li>控制器限制负向功率、减速度或动作。</li></ul>
+<p>只按“平均行走功率”选电池和母线会漏掉短时回生和峰值放电。</p>
+
+<h2>7. 热设计决定连续指标</h2>
+<div class="equation"><code>copper loss ≈ I²R　　switching loss ↑ with PWM frequency　　Tjunction = Tambient + Ploss·Rθ</code></div>
+<p>绕组、磁钢、MOSFET junction、PCB、减速器润滑和电池各有温度边界。温度传感器位置比热点冷，软件阈值要包含热模型和裕量。峰值电流通常先撞电子/磁饱和限制，连续电流通常撞热限制。</p>
+
+<h2>8. EMI、屏蔽和接地</h2>
+<p>高 <code>dv/dt</code> 的相线与高 <code>di/dt</code> 的回路会耦合到编码器、IMU 和通信。常见原则：</p>
+<ul><li>缩小功率开关回路面积，DC-link capacitor 靠近桥臂。</li><li>电机相线与敏感信号分开走线，差分对保持配对。</li><li>屏蔽层、机壳地和信号地按系统方案连接，避免随意两端/单端经验法。</li><li>跨越不同地电位的通信考虑 galvanic isolation、共模范围和浪涌保护。</li><li>用示波器、电流探头、近场探头和故障注入验证，不靠“看起来走线整齐”。</li></ul>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>电池 500 Wh、机器人平均消耗 250 W，并不保证运行恰好 2 小时。可用 SOC 窗口、DC/DC/驱动效率、峰值压降、温度降额、待机负载和老化都会缩短时间。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么 BMS 过流保护不能替代关节驱动器相过流？</summary><p>BMS 看包级电流且反应边界不同；MOSFET/绕组短路需要驱动器本地更快的相电流保护。</p></details>
+<details><summary>2. 为什么满电时回生制动更危险？</summary><p>电池可能没有充电接受空间或 BMS 会拒绝回充，机械能只能抬高母线电压或由制动电阻吸收。</p></details>
+<details><summary>3. 为什么急停不总是“立刻断电”四个字？</summary><p>人形机器人断力矩会倒下；必须基于风险设计受控停止、torque-off、制动和断电顺序，并确保独立安全路径最终收敛到安全状态。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://www.unitree.com/mobile/g1/">Unitree G1 Specifications</a> 给出 13S/9000 mAh/54 V 实例；<a href="https://docs.odriverobotics.com/v/latest/articles/component-selection.html">ODrive Component Selection</a> 说明电源、电流和制动边界；<a href="https://www.ti.com/lit/an/slla424/slla424.pdf">TI Isolated RS-485</a> 解释地电位差与 galvanic isolation。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/07-robot-communication-buses/">← 上一篇：通信总线</a><a href="/notes/robot-hardware/09-system-architecture-and-sizing/">下一篇：整机架构与选型 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

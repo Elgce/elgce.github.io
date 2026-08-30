@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="分层理解机器人高速 RS-485、CAN/CAN-FD、EtherCAT、Ethernet 与 DDS，包括拓扑、终端、同步、带宽和 G1 接口。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 机器人通信总线</title>
+</head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">07 / 09 · 初稿待学习</span><p class="eyebrow">你想到的可能是 EtherCAT，也可能是高速 485</p><h1>高速 485、CAN、EtherCAT 与 DDS</h1><p class="learning-header__lead">“机器人用什么协议”没有一个词能回答。关节旁的差分电线、总线帧、设备对象、上位机消息和 ROS 话题处在不同层；同一台机器人可以同时使用四五种通信。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先直接回答名字</h3><p><strong>人形/工业多轴伺服常说的高速实时 Ethernet 总线通常是 EtherCAT；宇树公开的 GO-M8010-6 独立关节电机使用 4 Mbit/s 高速 RS-485；G1 对开发者公开的整机低层接口则是 Ethernet 网络上的 CycloneDDS。三者不能互相替代地称为“G1 的底层总线”。</strong></p></div>
+
+<h2>1. 先用分层停止混乱</h2>
+<pre><code>application       trajectory / WBC / policy
+message model      q, dq, Kp, Kd, tau; DDS topics; ROS messages
+protocol           proprietary frames / CANopen / CoE / DDS-RTPS
+data link          UART framing / CAN / EtherCAT / Ethernet
+physical layer     TTL wire / RS-485 pair / CAN pair / 100BASE-TX
+connector+cable    pinout, shielding, ground, termination, topology</code></pre>
+<p>RS-485 主要定义电气层，并没有规定消息字段；CAN 同时定义物理/链路与仲裁帧，但“角度放哪几个 byte”仍由上层协议决定；EtherCAT 定义实时 Ethernet 数据链路与设备通信；DDS 是数据分发中间件，通常跑在 IP 网络上。</p>
+
+<h2>2. UART/TTL 与 RS-485</h2>
+<p>UART 定义异步串行字符格式和 baud rate。MCU 的 TTL UART 是单端、点对点、短距离；把 UART 数据接入 RS-485 transceiver 后，A/B 双绞线用差分电压传输，抗共模噪声和长距离能力显著提高，并可做多点总线。</p>
+<ul><li>RS-485 只规定 driver/receiver 的电气行为，协议、寻址、CRC、主从时序由产品定义。</li><li>常见半双工总线同一时刻只有一个节点发送，需要 direction control 和避免冲突。</li><li>高速/长线时应按电缆差分特性阻抗，在物理总线两端终端；传统值常为 120 Ω。</li><li>应采用 trunk/daisy-chain 并缩短 stub；星形随速率和线长上升更容易反射。</li></ul>
+<p><strong>宇树实例：</strong>GO-M8010-6 官方页面列出 RS-485、4 Mbit/s、最高 6 kHz 通信控制频率和 15-bit 编码器。这是某款独立 actuator 的公开规格，不足以证明 G1 机内每个关节完全使用同一总线。</p>
+
+<h2>3. Classical CAN 与 CAN-FD</h2>
+<p>CAN 也是差分多点总线，但链路层已经提供无损位仲裁、帧校验、ACK、错误计数与 bus-off。多个节点同时发时，数值更小/优先级更高的 identifier 赢得仲裁，失败节点稍后重发，因此没有 Ethernet 碰撞造成的帧损坏。</p>
+<table><thead><tr><th></th><th>Classical CAN</th><th>CAN-FD</th></tr></thead><tbody>
+<tr><td>payload</td><td>最多 8 byte</td><td>最多 64 byte</td></tr>
+<tr><td>bit rate</td><td>经典规范上限 1 Mbit/s</td><td>仲裁段保持 nominal rate，data phase 可切更高 rate</td></tr>
+<tr><td>适合</td><td>小而关键的控制/状态帧</td><td>更多关节状态、固件更新和较高带宽</td></tr>
+</tbody></table>
+<p>CAN 总线通常用约 120 Ω 双绞线，并在物理干线两端各放一个 120 Ω 终端；断电量到约 60 Ω 是常见粗检，但还要排除节点、电源和其他并联路径。CAN 的强项是鲁棒仲裁与错误隔离，不是全网亚微秒同步。</p>
+
+<h2>4. EtherCAT 为什么适合很多伺服轴</h2>
+<p>EtherCAT MainDevice 发出标准 Ethernet frame，帧依次经过 SubDevices；每个设备在帧“飞过”时直接读写属于自己的 process data，而不是逐节点收完整包、重新排队再发送。</p>
+<ul><li><strong>100 Mbit/s + on-the-fly：</strong>一个 frame 可更新许多轴，延迟可预测。</li><li><strong>process image：</strong>主站周期性读写映射好的输入/输出区域。</li><li><strong>Distributed Clocks：</strong>硬件补偿传播延迟，使多个关节在共同时间基准采样/输出；ETG 给出显著小于 1 μs 的同步抖动。</li><li><strong>拓扑：</strong>线形、树形和分支灵活，但 SubDevice 需要专用 EtherCAT controller/ASIC 或 FPGA IP。</li><li><strong>CoE/CiA 402：</strong>很多伺服把 CANopen 对象/drive profile 复用到 EtherCAT mailbox 上；这不意味着物理层变成 CAN。</li></ul>
+<p>EtherCAT 虽使用 Ethernet frame 和普通主站 NIC，却通常不走 TCP/UDP，不能把普通交换式 Ethernet 的网络行为直接套过来。</p>
+
+<h2>5. Ethernet、UDP、DDS 与 ROS 2</h2>
+<p>普通 Ethernet/IP 提供高带宽和成熟网络生态。DDS 在其上提供 typed publish/subscribe、发现与 QoS；ROS 2 也常以 DDS 为中间件。它适合计算机、相机、状态估计和控制服务，但默认 switched network + general-purpose OS 不保证硬实时。</p>
+<p>Unitree SDK2 的公开 G1 例子通过网络接口创建 DDS publisher/subscriber，在 <code>rt/lowcmd</code> 和 <code>rt/lowstate</code> 上传输 29 个电机的 <code>q/dq/Kp/Kd/τ</code> 与状态。这个接口处在整机控制器层；驱动板内部如何换向、机内控制板到各电机使用何种物理链路，是另一个边界。</p>
+
+<h2>6. 一张实用比较表</h2>
+<table><thead><tr><th>链路</th><th>核心优势</th><th>主要约束</th><th>常见位置</th></tr></thead><tbody>
+<tr><td>RS-485</td><td>便宜、差分、可高 baud、多点</td><td>上层协议自定义，仲裁/同步需自行设计</td><td>集成关节、编码器、夹爪</td></tr>
+<tr><td>CAN</td><td>仲裁、错误隔离、生态成熟</td><td>payload/带宽有限，周期随负载变化</td><td>移动机器人、汽车、低中速关节</td></tr>
+<tr><td>CAN-FD</td><td>64 B payload、更快 data phase</td><td>布线与 timing 更敏感，仍非全网同采样时钟</td><td>新型 actuator 和车载网络</td></tr>
+<tr><td>EtherCAT</td><td>高吞吐、确定周期、Distributed Clocks</td><td>从站硬件/主站栈和集成复杂度</td><td>工业伺服、人形多轴实时控制</td></tr>
+<tr><td>Ethernet + DDS</td><td>高带宽、pub/sub、跨进程/计算机</td><td>默认非硬实时，QoS 与 OS/交换机都影响结果</td><td>整机 SDK、ROS 2、感知/规划</td></tr>
+</tbody></table>
+
+<h2>7. Bitrate 不是 control rate</h2>
+<div class="equation"><code>bus load ≈ (payload + headers + CRC + gaps + retries) × update_rate × node_count</code></div>
+<p>4 Mbit/s 只是线上的 bit rate；6 kHz 控制还取决于每条命令/回复长度、半双工 turnaround、节点调度、软件延迟和错误重传。选总线时至少测量：</p>
+<ul><li>end-to-end latency、99.9% jitter 和丢包/错误率；</li><li>所有轴是否在同一采样时刻，还是只在相近到达时刻；</li><li>最大总线占用率及故障重试后的裕量；</li><li>命令 watchdog、sequence、CRC、时间戳和安全状态；</li><li>线长、stub、屏蔽、隔离、地电位差和连接器寿命。</li></ul>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>EtherCAT 不是“更快的 TCP/IP”，RS-485 不是完整消息协议，DDS 也不是电机相线旁的硬实时换向总线。先确定讨论的是哪一层，协议名才有意义。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么 RS-485 两根线接通后仍可能无法控制电机？</summary><p>还需要 baud、帧格式、节点 ID、字节序、CRC、收发方向和命令/回复时序完全一致。</p></details>
+<details><summary>2. EtherCAT 的同步优势只来自 100 Mbit/s 吗？</summary><p>不是。on-the-fly process data 和硬件 Distributed Clocks/传播延迟补偿同样关键；单纯提高普通 Ethernet 速率不自动获得确定同步。</p></details>
+<details><summary>3. 为什么知道 G1 使用 DDS 仍不能断言关节驱动器使用 EtherCAT？</summary><p>DDS 是开发者到整机控制服务的消息层；控制板到驱动器的机内链路属于更低且可能未公开的层。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://www.unitree.com/mobile/go1/motor/">Unitree GO-M8010-6</a> 给出高速 RS-485 实例；<a href="https://github.com/unitreerobotics/unitree_sdk2/blob/main/example/g1/low_level/g1_dual_arm_example.cpp">Unitree G1 Low-level Example</a> 展示 DDS topics 与关节命令；<a href="https://www.bosch-semiconductors.com/products/ip-modules/can-protocols/can-fd/">Bosch CAN-FD</a> 定义 64-byte payload 与双速率；<a href="https://www.ethercat.org/en/technology.html">EtherCAT Technology Group</a> 解释 on-the-fly 与 Distributed Clocks；<a href="https://www.ti.com/lit/wp/slla545/slla545.pdf">TI RS-485 Basics</a> 解释差分总线和终端。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/06-feedback-sensors/">← 上一篇：反馈传感器</a><a href="/notes/robot-hardware/08-power-safety-thermal/">下一篇：电源与安全 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

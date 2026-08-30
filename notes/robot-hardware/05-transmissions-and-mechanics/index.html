@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="理解机器人关节的减速比、行星/谐波/摆线传动、轴承、回差、刚度、反射惯量和可回驱性。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 减速器与关节机械</title>
+</head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 09 · 初稿待学习</span><p class="eyebrow">齿轮交换速度，也改变控制对象</p><h1>减速器、轴承与关节结构</h1><p class="learning-header__lead">减速器能让高速电机输出大力矩，但不会免费创造功率。它同时放大电机惯量、引入摩擦和弹性，并决定碰撞时外力能不能顺畅地反推电机。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>减速比 <code>N</code> 让输出转矩约乘 <code>N</code>、速度除以 <code>N</code>，却让电机惯量在输出侧表现为约 <code>N²</code> 倍；所以“大减速比”经常牺牲动态、触感和可回驱性。</strong></p></div>
+
+<h2>1. 理想减速器的三条公式</h2>
+<div class="equation"><code>ωout = ωmotor/N　　τout ≈ ηNτmotor　　Pout ≈ ηPin</code></div>
+<p><code>η</code> 是效率。若电机 0.5 N·m、3000 rpm，经过 10:1、效率 90% 的减速器，理想输出约 4.5 N·m、300 rpm；不是 5 N·m 且仍有 3000 rpm。</p>
+
+<h2>2. 惯量为什么按平方变化</h2>
+<div class="equation"><code>Jmotor_seen_at_output = Jmotor N²　　Jload_seen_at_motor = Jload/N²</code></div>
+<p>更大 <code>N</code> 让电机更容易“带动”负载，却让输出端感觉到一个被平方放大的转子惯量。腿足机器人若想碰撞柔顺、快速反向和回收能量，常选择较低减速比与高转矩密度电机，即 quasi-direct drive（QDD）。</p>
+
+<h2>3. 常见传动方案</h2>
+<table><thead><tr><th>方案</th><th>优势</th><th>代价/关注点</th></tr></thead><tbody>
+<tr><td>直驱</td><td>无齿隙、低摩擦、力控直接</td><td>电机大重、峰值电流高</td></tr>
+<tr><td>行星齿轮</td><td>同轴、效率高、比率灵活</td><td>多级后回差/惯量增加</td></tr>
+<tr><td>谐波</td><td>单级高减速比、紧凑、低名义回差</td><td>柔轮弹性、摩擦、冲击寿命、效率</td></tr>
+<tr><td>摆线</td><td>高比率、高承载、抗冲击</td><td>零件与偏心运动复杂、纹波</td></tr>
+<tr><td>皮带/绳驱</td><td>可远置电机、低质量末端、静音</td><td>预紧、弹性、蠕变和维护</td></tr>
+<tr><td>丝杠</td><td>旋转变直线、轴向力大</td><td>行程、临界转速、回差；有些方案不可回驱</td></tr>
+</tbody></table>
+<p>同一种传动的实际表现会随齿形、轴承、润滑、预载、装配和温度变化。不要只按“谐波/行星”标签推断效率或回差。</p>
+
+<h2>4. 回差、刚度和迟滞不是一回事</h2>
+<ul><li><strong>回差 backlash：</strong>反向时输入先走一段，输出才接触另一齿面。</li><li><strong>扭转刚度 stiffness：</strong>承受力矩时会弹性扭转，<code>k = Δτ/Δθ</code>。</li><li><strong>迟滞 hysteresis：</strong>加载与卸载沿不同路径，常来自摩擦、材料和预载。</li><li><strong>传动误差：</strong>输入角按理想比率换算后与真实输出角之间的周期/非周期误差。</li></ul>
+<p>一个“零回差”预载齿轮仍可能有显著弹性与迟滞；高分辨率转子编码器看不到这些输出端误差。</p>
+
+<h2>5. 可回驱性从哪里来</h2>
+<p>可回驱意味着外部输出力矩能让关节反向带动传动和电机。它受减速比、静摩擦、齿形、自锁、预载、电机 cogging、驱动器是否使能和控制律共同影响。</p>
+<ul><li>低摩擦、低减速比、小转子惯量通常更易回驱。</li><li>能回驱不等于无阻尼；控制器可注入虚拟阻尼或弹簧。</li><li>不可回驱能省保持能量，但不利于碰撞柔顺和直接力估计。</li></ul>
+
+<h2>6. 轴承承担的是结构载荷</h2>
+<p>关节输出往往同时承受径向力、轴向力与倾覆力矩。轴承选型要看静/动额定载荷、寿命、预载、刚度、转速和冲击。交叉滚子轴承能在紧凑空间承受复合载荷，因此常见于机器人关节；但安装面不平、预载错误也会让摩擦和寿命恶化。</p>
+
+<h2>7. 热路径也是机械设计</h2>
+<pre><code>copper winding → stator → housing → robot link → ambient air
+MOSFET junction → PCB / thermal pad → housing → robot link</code></pre>
+<p>关节外壳既承载又散热。相同电机在开放台架、密闭小腿、主动风冷和铝制大结构上的连续力矩会完全不同。规格必须说明环境温度、冷却、占空比和允许绕组/驱动温度。</p>
+
+<h2>8. 机械指标应成组读取</h2>
+<table><thead><tr><th>想要</th><th>不能漏看的伴随指标</th></tr></thead><tbody>
+<tr><td>大输出转矩</td><td>输出速度、峰值持续时间、齿轮强度、热、质量</td></tr>
+<tr><td>高精度</td><td>回差、刚度、传动误差、编码器安装、负载变形</td></tr>
+<tr><td>高带宽</td><td>转子惯量、结构模态、通信延迟、电流环、采样噪声</td></tr>
+<tr><td>强力控</td><td>可回驱性、摩擦、力矩传感、模型补偿、碰撞安全</td></tr>
+</tbody></table>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>输出“峰值力矩”可能是齿轮短时承载上限，也可能是驱动电流换算值；如果没有速度、持续时间和温度条件，它不是可直接用于动作规划的完整约束。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 减速比从 10 提到 20，电机惯量在输出侧如何变化？</summary><p>理想反射惯量从 <code>100Jm</code> 提到 <code>400Jm</code>，是 4 倍而非 2 倍。</p></details>
+<details><summary>2. 低回差为什么仍不保证高位置精度？</summary><p>还有传动误差、弹性变形、编码器误差、轴承/结构变形、温漂与标定误差。</p></details>
+<details><summary>3. 为什么相同关节台架测试与装进机器人后的连续转矩不同？</summary><p>散热边界、相邻热源、通风、姿态载荷和实际工作循环都变了。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://github.com/unitreerobotics/unitree_actuator_sdk">Unitree Actuator SDK</a> 给出转子/输出侧减速比和增益换算实例；<a href="https://docs.odriverobotics.com/v/latest/manual/hardware-config.html">ODrive Gearbox and Dual Encoder</a> 说明减速器对反馈和增益的影响；<a href="https://www.unitree.com/mobile/g1/">Unitree G1</a> 给出交叉滚子轴承、双编码器和关节最大力矩的整机实例。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/04-servo-actuator-stack/">← 上一篇：伺服关节</a><a href="/notes/robot-hardware/06-feedback-sensors/">下一篇：反馈传感器 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

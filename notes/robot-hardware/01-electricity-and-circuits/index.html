@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="机器人硬件所需的零基础电路知识：电压、电流、电阻、功率、电容、电感、地、保护与反电动势。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | 机器人需要的电路基础</title>
+</head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">01 / 09 · 初稿待学习</span><p class="eyebrow">先建立单位和能量直觉</p><h1>电压、电流、功率与真实导线</h1><p class="learning-header__lead">机器人首先是一台会移动的电力系统。控制算法最终都要变成电流，而电流经过电阻会发热、经过电感不能瞬间变化，还必须沿真实导线回到电源。</p></header>
+<div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>电压提供“推动电荷的势差”，电流是电荷流率；电机力矩主要受电流限制，最高转速主要受电压与反电动势限制，持续能力最终受热限制。</strong></p></div>
+
+<h2>1. 四个最常见的量</h2>
+<table><thead><tr><th>量</th><th>单位</th><th>机器人里的直觉</th></tr></thead><tbody>
+<tr><td>电压 <code>V</code></td><td>伏特 V</td><td>两点之间的电势差；必须说明“相对哪里”</td></tr>
+<tr><td>电流 <code>I</code></td><td>安培 A</td><td>每秒流过多少电荷；必须有闭合回路</td></tr>
+<tr><td>功率 <code>P</code></td><td>瓦特 W</td><td>能量转换速率；直流近似 <code>P = VI</code></td></tr>
+<tr><td>能量 <code>E</code></td><td>焦耳 J / 瓦时 Wh</td><td>功率随时间累积；<code>E = Pt</code></td></tr>
+</tbody></table>
+<p>“48 V 电池”说的是工作电势范围，“20 A”常是某时刻电流，“500 W 电机”通常是特定热条件下的功率等级，“500 Wh 电池”才是可储存能量。它们不能互换。</p>
+
+<h2>2. 欧姆定律和发热</h2>
+<div class="equation"><code>V = IR　　P = VI = I²R = V²/R</code></div>
+<p>一条总电阻 20 mΩ 的电源线流过 50 A，会掉压 <code>1 V</code>，并发热 <code>50 W</code>。高电流机器人因此在意线径、连接器接触电阻、铜排、压接质量和散热；接头“还能通”不代表它在峰值力矩下安全。</p>
+
+<h2>3. 串联、并联和“地”</h2>
+<ul><li><strong>串联：</strong>电流相同，电压分配。电池 <code>13S</code> 表示 13 组电芯串联以提高电压。</li><li><strong>并联：</strong>电压相同，电流分配。多条支路可以从 DC bus 分别给关节和计算机供电。</li><li><strong>Ground：</strong>是被选作 0 V 参考或回流路径的节点，不是能吸走一切电流的神秘黑洞。Power return、signal ground、protective earth、机壳地可能需要连接，也可能要按 EMC/隔离设计分开。</li></ul>
+<p>测量电压时要问“探头两端接在哪里”；测量电流则要串入回路或使用电流钳/分流器。示波器地夹可能与保护地相连，随便夹到高侧母线会短路。</p>
+
+<h2>4. 电容和电感为什么重要</h2>
+<div class="compare-grid">
+<div class="compare-card"><h3>电容 C</h3><p><code>i = C·dv/dt</code>。它抗拒电压突变，在驱动器旁供应 PWM 瞬态电流、稳定 DC bus，也会在上电时造成很大的充电浪涌。</p></div>
+<div class="compare-card"><h3>电感 L</h3><p><code>v = L·di/dt</code>。它抗拒电流突变。电机绕组就是电阻加电感；切断电流时，储存的磁能必须有续流和吸收路径。</p></div>
+</div>
+<p>真实电路还包含寄生电阻、电感和电容。PWM 边沿很快时，一段线缆已经是一条传输线；错误的终端、长支线和回流路径会带来反射与电磁干扰。</p>
+
+<h2>5. 开关、二极管、MOSFET 和 DC/DC</h2>
+<ul><li><strong>二极管：</strong>主要允许单向导通；用于续流、反接保护或整流，但有压降和恢复特性。</li><li><strong>MOSFET：</strong>受栅极控制的高速功率开关。电机驱动器不是用它在线性区“烧掉多余电压”，而是高速开关并用 PWM 控制平均效果。</li><li><strong>DC/DC：</strong>把电池母线变成计算机、传感器或逻辑电路需要的 24/12/5/3.3 V；额定功率、瞬态响应、隔离和效率都重要。</li><li><strong>保险丝/断路器：</strong>保护导线和设备免受过流能量，不负责实现精确软件限流。</li></ul>
+
+<h2>6. 电机既是负载也是发电机</h2>
+<p>转子旋转会产生与转速近似成正比的反电动势 <code>E = Kₑω</code>。加速时，电源克服反电动势建立电流；减速或外力推动关节时，功率方向可能反转，电机把机械能送回 DC bus。电池/BMS 若不接受回充，母线电压会上升，驱动器需要制动电阻、能量吸收或限制减速度。</p>
+
+<h2>7. 上电前的最小保护链</h2>
+<pre><code>battery → service disconnect → fuse → precharge → contactor → DC bus
+                                                     ├─ motor drives
+                                                     └─ DC/DC → compute + sensors
+
+E-stop / watchdog ──独立安全路径──→ disable torque / open contactor</code></pre>
+<p>预充电先通过电阻给母线电容充电，再闭合主接触器，避免插头打火和接触器焊死。BMS 保护电芯，但通常不能替代每条支路的保险丝、驱动器硬件过流和整机急停。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>电源标注“最大 20 A”不是它始终把 20 A 灌进负载。负载和控制器决定需要多少电流，电源只是必须在电压、瞬态和保护范围内提供它。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 48 V 母线下一个驱动器输入 10 A，电功率一定是 480 W 吗？</summary><p>直流侧瞬时近似如此，但还要区分平均/峰值、驱动效率、三相相电流与 DC bus 电流；相电流 10 A 不等于母线电流 10 A。</p></details>
+<details><summary>2. 为什么拔掉高速旋转电机的电源不等于能量消失？</summary><p>转子和负载仍有动能，电机可能发电；能量必须被摩擦、制动电阻、电池或其他路径吸收。</p></details>
+<details><summary>3. 为什么保险丝应靠近电池支路起点？</summary><p>这样从电源到保险丝之间未受保护的导线最短；否则下游短路时，上游长线仍可能由电池持续供能并起火。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://www.ti.com/lit/wp/slla545/slla545.pdf">TI RS-485 Basics</a> 的传输线章节解释终端与真实导线；<a href="https://docs.odriverobotics.com/v/latest/articles/component-selection.html">ODrive Component Selection</a> 把电压、电流、<code>Kv</code>/<code>Kt</code> 与电机能力对应；<a href="https://www.unitree.com/mobile/g1/">Unitree G1 Parameters</a> 给出 13S 电池、54 V 充电器等整机实例。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/">← 系列目录</a><a href="/notes/robot-hardware/02-motor-families/">下一篇：电机家族 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

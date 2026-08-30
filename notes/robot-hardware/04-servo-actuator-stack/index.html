@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="理解电机怎样与编码器、驱动器、控制器、减速器和轴承组成舵机、伺服轴与机器人集成关节。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 电机怎样变成舵机</title>
+</head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">04 / 09 · 初稿待学习</span><p class="eyebrow">Servo 是系统属性，不是电机品种</p><h1>电机怎样变成“舵机”</h1><p class="learning-header__lead">中文里“舵机”常让人误以为它是一类特殊小电机。更准确的理解是伺服系统：测量实际输出，把它与目标比较，再自动调节驱动，使位置、速度或力矩跟随命令。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>一台电机加上功率驱动、反馈传感器和闭环控制才成为 servo；再加减速器、轴承、结构、热设计和通信，才成为可装到机器人上的关节 actuator。</strong></p></div>
+
+<h2>1. 开环电机与闭环伺服</h2>
+<div class="compare-grid">
+<div class="compare-card"><h3>开环</h3><p>命令电压、占空比或步数，不持续检查输出是否到位。负载、摩擦、电池电压变化都会改变结果。</p></div>
+<div class="compare-card"><h3>闭环</h3><p>传感器测量位置/速度/电流，控制器用误差修正输入，并报告状态和故障。</p></div>
+</div>
+<pre><code>target → controller → motor driver → motor → transmission → joint
+  ↑                                                    │
+  └──────────── encoder / current / torque ────────────┘</code></pre>
+
+<h2>2. 三种常被叫作“舵机”的东西</h2>
+<table><thead><tr><th>名称</th><th>通常包含</th><th>典型接口</th></tr></thead><tbody>
+<tr><td>RC hobby servo</td><td>小 DC/BLDC、电位器、齿轮、简单控制板</td><td>PWM pulse，常只给目标位置</td></tr>
+<tr><td>Smart servo</td><td>电机、编码器、驱动、减速器、MCU、总线</td><td>串行/CAN，能读状态和设增益</td></tr>
+<tr><td>机器人集成关节</td><td>PMSM、FOC、双编码器、减速器、轴承、热与安全</td><td>RS-485/CAN/EtherCAT/私有总线</td></tr>
+</tbody></table>
+<p>工业里还会把 motor + encoder 称 servo motor，把独立功率控制器称 servo drive。读资料时必须确认“servo”是否已经包含减速器、驱动器和控制器。</p>
+
+<h2>3. 一个完整关节的部件</h2>
+<ol><li><strong>电机：</strong>把电能变成转矩与转速。</li><li><strong>驱动器：</strong>逆变、FOC、电流采样与快速保护。</li><li><strong>转子编码器：</strong>用于电角度换向，也可估计转速。</li><li><strong>减速器：</strong>以速度换输出转矩，同时引入摩擦、回差、柔性和反射惯量。</li><li><strong>输出编码器：</strong>测减速器之后的真实关节角，帮助看到回差和弹性。</li><li><strong>轴承与外壳：</strong>承受径向、轴向和倾覆力矩，不应让转子磁隙承担结构载荷。</li><li><strong>温度/力矩感知：</strong>用于降额、保护或力控。</li><li><strong>通信与电源：</strong>接收命令、回传状态，并处理掉线、急停和上电状态机。</li></ol>
+
+<h2>4. 双编码器为什么有价值</h2>
+<p>电机侧编码器看到 <code>θm</code>，输出侧编码器看到 <code>θj</code>。理想刚性传动应有 <code>θj ≈ θm/N</code>；两者差异包含齿隙、弹性扭转、装配偏差和可能的故障。</p>
+<div class="equation"><code>transmission deflection ≈ θm/N − θj</code></div>
+<p>转子编码器高速、低延迟，适合换向和内环；输出编码器更接近任务真正关心的关节角。双编码器并不自动消除回差，控制器还要考虑两路信号的带宽与机械共振。</p>
+
+<h2>5. 位置模式、速度模式和力矩模式</h2>
+<table><thead><tr><th>命令</th><th>低层闭环</th><th>适合</th><th>主要风险</th></tr></thead><tbody>
+<tr><td>位置</td><td>位置 + 速度 + 电流</td><td>轨迹、机械臂常规动作</td><td>刚度过高时碰撞力大</td></tr>
+<tr><td>速度</td><td>速度 + 电流</td><td>轮子、输送、扫描</td><td>位置会累积漂移</td></tr>
+<tr><td>力矩/电流</td><td>电流环</td><td>WBC、阻抗、接触控制</td><td>外环失控会快速运动</td></tr>
+<tr><td>阻抗/混合</td><td>PD + 前馈力矩</td><td>腿足和柔顺交互</td><td>延迟与错误增益会振荡</td></tr>
+</tbody></table>
+<p>“力矩模式”常是用相电流乘 <code>Kt</code> 估计电机转矩。经过减速器后，摩擦、效率、齿轮弹性和惯性都会让输出力矩与估计不同；高精度力控可能需要输出力矩传感器。</p>
+
+<h2>6. 上电状态机也是 servo 的一部分</h2>
+<pre><code>OFF → self-test → encoder/calibration check → READY
+                                      ↓ enable
+FAULT ← watchdog / overtemp ← CLOSED LOOP → controlled stop → OFF</code></pre>
+<p>安全系统必须定义：命令超时怎么办、编码器跳变怎么办、母线欠压是否抱死、急停是断力矩还是保持制动、重新上电是否需要找零。一个只会“收到角度就转”的板子还不是成熟关节。</p>
+
+<h2>7. 评估 servo 的指标</h2>
+<ul><li><strong>输出能力：</strong>连续/峰值转矩、峰值持续时间、速度—转矩曲线、机械功率。</li><li><strong>可控性：</strong>控制带宽、命令周期、延迟/抖动、力矩线性、低速齿槽转矩。</li><li><strong>机械质量：</strong>质量、转动惯量、回差、扭转刚度、可回驱性、轴承载荷。</li><li><strong>反馈：</strong>编码器精度/分辨率、绝对值能力、双编码器、温度和故障状态。</li><li><strong>系统边界：</strong>电压、电流、散热条件、IP 等级、线缆/连接器、通信和安全功能。</li></ul>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>编码器分辨率高不代表输出位置同样准确。减速器回差、结构弯曲、零位标定、磁编码器偏心和温漂都可能主导最终误差。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 给普通 DC 电机加一个编码器，就已经是完整舵机了吗？</summary><p>还需要能根据误差调节功率的闭环控制器/驱动器，以及合理的供电、保护和机械输出；编码器只是反馈元件。</p></details>
+<details><summary>2. 为什么输出侧编码器不能简单替代电机侧编码器做 FOC？</summary><p>FOC 需要低延迟、高带宽的转子电角度；输出角还隔着减速器的比率、回差和弹性，通常不适合作为唯一换向反馈。</p></details>
+<details><summary>3. 为什么机器人腿喜欢阻抗或力矩接口？</summary><p>它能让上层协调多个关节和接触力，并设置可控柔顺性；纯高刚度位置控制面对未知地面更容易产生冲击。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://docs.odriverobotics.com/v/latest/manual/control.html">ODrive Controller</a> 给出三层闭环与控制模式；<a href="https://docs.odriverobotics.com/v/latest/manual/hardware-config.html">ODrive Dual Encoder</a> 说明 motor/load 两侧反馈；<a href="https://github.com/unitreerobotics/unitree_actuator_sdk">Unitree Actuator SDK</a> 展示 <code>q/dq/Kp/Kd/τ</code> 混合关节命令。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/03-drivers-pwm-foc/">← 上一篇：驱动器与 FOC</a><a href="/notes/robot-hardware/05-transmissions-and-mechanics/">下一篇：机械传动 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

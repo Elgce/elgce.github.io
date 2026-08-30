@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="从电磁转矩与换向理解有刷直流、BLDC/PMSM、步进、感应电机和直线执行器。">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 电机为什么转</title>
+</head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">02 / 09 · 初稿待学习</span><p class="eyebrow">先看换向，再看名字</p><h1>电机为什么转，几类电机差在哪</h1><p class="learning-header__lead">电机做的事情很统一：让定子磁场与转子磁场保持合适角度，从而持续产生转矩。不同电机最本质的差别，是磁场从哪里来、谁负责换向、如何知道转子角度。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>机器人关节常用永磁同步电机（PMSM，行业也常笼统叫 BLDC）：电流决定可用转矩，电压对抗反电动势决定高速能力，电阻和散热决定能持续多久。</strong></p></div>
+
+<h2>1. 从一根通电导线开始</h2>
+<p>电流处在磁场中会受到力。把导线绕成线圈、放到定子槽里，再按转子位置依次给多相绕组通电，就能制造旋转磁场。转子上的永磁体或感应出的磁场会追随它，于是产生转矩。</p>
+<div class="equation"><code>τ ≈ Kₜ Iq　　E ≈ Kₑ ω　　Pmechanical = τω</code></div>
+<p><code>Iq</code> 是与转矩方向对齐的电流分量。理想 SI 定义下 <code>Kₜ</code> 与 <code>Kₑ</code> 数值相关；但厂商会使用相电流/线电流、峰值/RMS、机械/电气转速等不同约定，不能不看定义就换算。</p>
+
+<h2>2. 有刷直流电机：机械换向</h2>
+<p>定子提供固定磁场，转子绕组通过电刷和换向器随旋转自动翻转电流。给电压就能转，H 桥即可正反转，成本低且直观。</p>
+<ul><li><strong>优点：</strong>控制简单、低成本、低功率机构常见。</li><li><strong>代价：</strong>电刷磨损、火花和噪声、散热受限，高动态和长寿命机器人关节通常不优先。</li></ul>
+
+<h2>3. BLDC 与 PMSM：电子换向</h2>
+<p>转子通常带永磁体，定子是三相绕组，驱动器根据电角度切换三相电流。行业命名并不完全统一：常把梯形反电动势、六步换向称 BLDC，把正弦反电动势、正弦电流/FOC 称 PMSM；很多产品则把整个无刷永磁家族都叫 BLDC。</p>
+<table><thead><tr><th>设计维度</th><th>一种取向</th><th>另一种取向</th></tr></thead><tbody>
+<tr><td>转子几何</td><td>内转子：惯量低、散热路径好</td><td>外转子：半径大、转矩密度高</td></tr>
+<tr><td>换向</td><td>六步：实现简单，转矩纹波较大</td><td>正弦/FOC：平滑、控制精细</td></tr>
+<tr><td>位置反馈</td><td>Hall/编码器有感</td><td>反电动势/观测器无感</td></tr>
+</tbody></table>
+<p>静止和极低速时反电动势太小，机器人关节为了可靠转矩与位置控制通常使用编码器。Unitree G1 的公开规格称关节使用低惯量高速内转子 PMSM，并使用双编码器。</p>
+
+<h2>4. 步进电机：把位置离散成“步”</h2>
+<p>多齿转子被定子相序逐步吸引。开环时控制器假定“发出多少步就走了多少步”，低速保持力矩大、使用简单，常见于 3D 打印机和轻载平台。</p>
+<ul><li>负载过大或加速度过高会丢步，而控制器可能不知道。</li><li>高速力矩下降明显，特定速度会共振。</li><li>微步让运动更平滑，但不能把微步数直接当成同等绝对精度。</li><li>加编码器后可以做闭环步进，但这时系统逻辑已经接近伺服。</li></ul>
+
+<h2>5. 其他电机和执行器</h2>
+<table><thead><tr><th>类型</th><th>磁场/运动逻辑</th><th>典型用途</th></tr></thead><tbody>
+<tr><td>感应电机 ACIM</td><td>定子旋转磁场在转子中感应电流，需要转差</td><td>工业驱动、大功率轮式平台</td></tr>
+<tr><td>开关磁阻 SRM</td><td>转子趋向最小磁阻位置，无永磁体</td><td>高温、高速、强调鲁棒性的场合</td></tr>
+<tr><td>音圈/直线电机</td><td>直接产生直线力，没有旋转减速机构</td><td>短行程、高带宽精密机构</td></tr>
+<tr><td>旋转电机 + 丝杠</td><td>螺旋传动把旋转变成直线</td><td>电动缸、夹爪、升降关节</td></tr>
+<tr><td>螺线管</td><td>通电吸合，通常只有有限行程/状态</td><td>锁止、阀门，不是通用伺服轴</td></tr>
+</tbody></table>
+
+<h2>6. 转矩—转速曲线才是完整能力</h2>
+<p>低速时驱动器往往受最大电流限制，形成近似恒转矩区；速度升高后，反电动势接近可用母线电压，电流无法继续建立，转矩下降。标一个“峰值 100 N·m”却不说明转速、持续时间、母线电压和温度，无法用于系统设计。</p>
+<pre><code>torque
+  │ ┌──────── current / thermal limited
+  │ │         
+  │ │          \ voltage / back-EMF limited
+  │ │           \
+  └─┴────────────── speed
+    0  base speed  no-load speed</code></pre>
+
+<h2>7. 连续、峰值和堵转</h2>
+<ul><li><strong>连续转矩：</strong>在规定环境和散热下达到热平衡还能保持的转矩。</li><li><strong>峰值转矩：</strong>由电流、磁体退磁、齿轮强度等限制，只允许特定秒数和占空比。</li><li><strong>堵转：</strong>速度为零、反电动势为零，若仍施加大电流会快速产生 <code>I²R</code> 热；“不转”绝不等于“不耗电”。</li></ul>
+
+<div class="concept-callout"><strong>常见误解：</strong><p><code>Kv</code> 高不是“电机更强”。高 <code>Kv</code> 表示每伏特空载转速更高，通常对应更低 <code>Kt</code>；同一体积下要结合电压、电流、铜损、转矩—转速曲线和减速比判断。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么一个 PMSM 静止时也需要知道转子角度？</summary><p>驱动器必须把定子电流磁场放在相对转子磁场合适的位置；角度错会减少转矩、反向转矩或大电流发热。</p></details>
+<details><summary>2. 为什么齿轮不能让输出同时获得更多转矩和更多转速？</summary><p>理想传动近似守恒机械功率 <code>τω</code>；提高转矩会按比例降低转速，真实系统还会损失效率。</p></details>
+<details><summary>3. “伺服电机”是与 BLDC 并列的电机物理类型吗？</summary><p>不是。Servo 描述闭环控制系统；有刷 DC、PMSM、感应电机甚至液压机构都可以成为伺服轴。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://www.ti.com/lit/an/slvaes1a/slvaes1a.pdf">TI BLDC Motor Driver Guide</a> 比较换向方式与反馈；<a href="https://docs.odriverobotics.com/v/latest/hardware/odrive-motors.html">ODrive Motor Curves</a> 展示恒转矩区与 base speed；<a href="https://www.unitree.com/mobile/g1/">Unitree G1 Specifications</a> 描述 G1 的内转子 PMSM 与双编码器。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-hardware/01-electricity-and-circuits/">← 上一篇：电路基础</a><a href="/notes/robot-hardware/03-drivers-pwm-foc/">下一篇：驱动器与 FOC →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>
