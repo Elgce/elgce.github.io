@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="从 PPO 到 GRPO：理解同一 prompt 的组内相对奖励、critic-free advantage、clipped token update、KL 与训练诊断。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | GRPO</title></head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/rl-training/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">09 / 10 · 初稿待学习</span><p class="eyebrow">用同题多答构造 baseline</p><h1>GRPO：不用 Critic 的相对优势</h1><p class="learning-header__lead">Group Relative Policy Optimization 对同一个 prompt 采样一组回答，以这组 reward 的相对高低近似 advantage，再沿用 PPO 风格的 clipped update。它省掉独立 value model，但把计算压力转移给了 group rollout。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>GRPO 的关键不是一个新 clip，而是“同一问题的多个回答互为 baseline”：比同组平均更好的回答增概率，更差的降概率。</strong></p></div>
+
+<h2>1. 为什么想去掉 Critic</h2>
+<p>LLM PPO 需要训练一个与 actor 同量级或共享 backbone 的 value function，还要让稀疏 sequence reward 对应到每个 prefix value。若同一 prompt 能便宜地生成多条回答并自动评分，可以直接用组内比较消除 prompt 难度，省掉 critic。</p>
+
+<h2>2. 一次 GRPO batch</h2>
+<pre><code>for prompt x in batch:
+    sample G responses y₁...yG from old policy
+    score rewards r₁...rG
+    μ, σ = mean(r), std(r)
+    Aᵢ = (rᵢ - μ) / (σ + ε)
+
+recompute token log-probs under current policy
+optimize clipped ratios × Aᵢ, plus optional reference KL
+repeat with fresh on-policy-ish rollouts</code></pre>
+<p>相同 prompt 使 baseline 条件化在题目上：一道难题的“局部最好”仍可获得正 advantage，一道简单题中低于同伴的回答仍为负。</p>
+
+<h2>3. 目标函数看什么</h2>
+<div class="equation"><code>ρᵢ,t(θ) = πθ(yᵢ,t|x,yᵢ,&lt;t) / πold(yᵢ,t|x,yᵢ,&lt;t)</code><br><code>Lclip = E[min(ρᵢ,t Aᵢ, clip(ρᵢ,t,1−ε,1+ε) Aᵢ)]</code></div>
+<p>若只有 final outcome reward，常把 response-level <code>Aᵢ</code> 用在所有有效 completion tokens；再加 reference KL 或将 KL 写成 reward penalty。positive advantage 时 ratio 上界阻止一步暴涨；negative advantage 时相反边界阻止过度压低。</p>
+
+<h2>4. 与 PPO 的关系</h2>
+<table><thead><tr><th></th><th>PPO + GAE</th><th>GRPO</th></tr></thead><tbody>
+<tr><td>baseline</td><td>learned value <code>V(s_t)</code></td><td>同 prompt 的 group reward</td></tr><tr><td>advantage 粒度</td><td>通常逐时间步</td><td>经典形式多为整条 response 相同</td></tr><tr><td>额外模型</td><td>critic/value</td><td>无需 critic</td></tr><tr><td>主要成本</td><td>value forward/backward 与 rollout</td><td>每 prompt 的 G 条 rollout</td></tr><tr><td>适用 reward</td><td>dense 或 sparse</td><td>同输入可比较的多样本 reward</td></tr>
+</tbody></table>
+<p>GRPO 不是“PPO 的通用升级版”。机器人 continuous-control trajectory 很长、环境样本昂贵时，为每个初态采一组完整 rollout 未必划算；critic 反而能跨状态泛化。</p>
+
+<h2>5. 组内标准化的边界</h2>
+<ul><li><strong>全组同分：</strong><code>σ≈0</code>，所有 advantage 接近 0，没有学习信号；</li><li><strong>group 太小：</strong>mean/std 噪声大，单个异常 reward 支配更新；</li><li><strong>二元 reward：</strong>只有组内同时有成败才有强信号，任务过难或过易都会稀疏；</li><li><strong>相对而非绝对：</strong>它优化同组排序，不自动保证 calibrated value；</li><li><strong>长度效应：</strong>按 token 还是按 sequence 聚合 loss，会改变长回答权重。</li></ul>
+
+<h2>6. “GRPO”现在是一族实现</h2>
+<p>不同代码可能在 reward normalization、token/sequence aggregation、importance ratio、KL estimator、clipping 上不同。读配置时至少问：</p>
+<ol><li>advantage 是按 prompt group、整个 batch，还是不除标准差？</li><li>ratio 是逐 token 还是 sequence-level？loss 先 token 平均还是 response 平均？</li><li>rollout engine 保存的 old log-prob 是否与训练端一致？</li><li>KL 在 objective 外直接加、并入 reward，还是完全不用？</li><li>多次 epoch 后 rollout 有多 stale？</li></ol>
+
+<h2>7. 训练失败怎样定位</h2>
+<table><thead><tr><th>现象</th><th>优先检查</th></tr></thead><tbody>
+<tr><td>reward 不动</td><td>zero-variance group 比例、任务难度、采样温度、verifier</td></tr><tr><td>reward 升但 eval 降</td><td>reward hacking、长度/格式、训练集记忆</td></tr><tr><td>KL/clipfrac 暴涨</td><td>LR、epochs、old log-prob 精度与 rollout staleness</td></tr><tr><td>entropy 快速塌缩</td><td>探索不足、组内多样性、reward scale</td></tr><tr><td>loss 看似正常但不学习</td><td>completion mask、sign、detached advantage、全组同分</td></tr>
+</tbody></table>
+
+<h2>8. 一个最小检查清单</h2>
+<p>同时画 raw reward mean/std、每题全同分比例、pass rate、response length、entropy、reference KL、clip fraction，以及 <em>update 前</em> current/old ratio。若两者本应同一 policy，第一步 ratio 应非常接近 1。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>“critic-free”不等于“低成本”。它减少 value model 显存与训练复杂度，却需要 G 倍候选来得到组内 baseline；在长 chain-of-thought 中，decode 往往才是主要吞吐瓶颈。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 为什么要同一 prompt 成组采样？</summary><p>这样 reward 差主要反映回答质量，而不是题目本身难度，组均值可充当 prompt-conditioned baseline。</p></details><details><summary>2. 一组回答都正确会发生什么？</summary><p>组内 reward 方差为零，标准化 advantage 接近零，这组几乎不给 policy gradient。</p></details><details><summary>3. 为什么 ratio 在第一次 update 前应接近 1？</summary><p>current policy 尚未更新，应与生成 rollout 的 old policy 相同；明显偏离通常说明 serving/training log-prob 或精度不一致。</p></details></section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://arxiv.org/abs/2402.03300">DeepSeekMath</a> 提出 GRPO，以 group score 构造相对 advantage 并避免同尺寸 critic；PPO 的 clipped surrogate 来自<a href="https://arxiv.org/abs/1707.06347">原始 PPO 论文</a>。</p></div><nav class="article-series-nav"><a href="/notes/rl-training/08-llm-rlhf-rlvr/">← 上一篇：LLM RLHF/RLVR</a><a href="/notes/rl-training/10-flow-grpo/">下一篇：Flow-GRPO →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

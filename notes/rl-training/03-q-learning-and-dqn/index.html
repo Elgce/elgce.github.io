@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="从 tabular Q-learning 到 DQN，理解 replay buffer、target network、epsilon-greedy、Double DQN 与离散动作价值学习。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | Q-learning 与 DQN</title></head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/rl-training/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">03 / 10 · 初稿待学习</span><p class="eyebrow">用一个网络给每个离散动作打分</p><h1>Q-learning 与 DQN</h1><p class="learning-header__lead">Q-learning 不直接训练一个输出动作的 actor，而是估计每个 action 的长期回报，再选最大值。DQN 的关键贡献不是简单把 Q-table 换成神经网络，而是用 replay 和延迟 target 控制相关数据与移动目标。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>DQN 用网络近似 <code>Q(s,a)</code>，用旧 target network 构造 Bellman target，用 replay buffer 打乱和复用经验，再通过 ε-greedy 产生探索数据。</strong></p></div>
+
+<h2>1. Tabular Q-learning</h2><div class="equation"><code>Q(s,a) ← Q(s,a)+α[r+γ max_{a'}Q(s',a')−Q(s,a)]</code></div>
+<p>小离散状态可直接维护表格。像素、高维状态或组合空间无法枚举时，用神经网络 <code>Qθ(s)</code> 一次输出所有离散动作的价值。</p>
+
+<h2>2. DQN 的 loss</h2><div class="equation"><code>y = r + γ(1−terminal) max_{a'} Qθ⁻(s',a')</code></div><div class="equation"><code>L(θ)=E_{(s,a,r,s')~D}[(Qθ(s,a)−stopgrad(y))²]</code></div>
+<p><code>θ⁻</code> 是 target network 参数，每隔若干步 hard copy，或用 Polyak averaging 慢更新。对 truncation 通常保留 bootstrap；对真实 terminal 清零。</p>
+
+<h2>3. Replay buffer 解决什么</h2>
+<ul><li>把连续 trajectory 的强相关样本随机打散；</li><li>一条昂贵 experience 可用于多个 gradient updates；</li><li>混合不同阶段策略的数据，降低当前 batch 的非平稳性。</li></ul>
+<p>代价是训练变成 off-policy，旧数据可能和当前 policy 差很远；buffer 太小相关性强，太大则包含大量过时分布。prioritized replay 更常抽 TD error 大的样本，但需要 importance correction 管理采样偏差。</p>
+
+<h2>4. ε-greedy 探索</h2><pre><code>with probability ε: random action
+otherwise:           argmax_a Q(s,a)</code></pre>
+<p>训练常逐步衰减 ε，evaluation 则固定 greedy 或很小 ε。随机 action 在巨大离散/长时序任务很低效；NoisyNet、intrinsic motivation、bootstrapped ensemble 等尝试更结构化探索。</p>
+
+<h2>5. 完整训练循环</h2><pre><code>initialize Qθ, target Qθ⁻ ← Qθ, replay D
+repeat:
+    a ← ε-greedy(Qθ(s, ·))
+    s', r, terminated, truncated ← env.step(a)
+    D.add(s, a, r, s', terminated)
+    batch ← D.sample()
+    y ← r + γ(1-terminated) max Qθ⁻(s', ·)
+    update θ on huber(Qθ(s,a), y)
+    periodically update θ⁻
+    reset if terminated or truncated</code></pre>
+
+<h2>6. 为什么 max 会高估</h2>
+<p>若多个 action 的 Q 估计都有噪声，取最大值偏向挑中正误差。Double DQN 用 online network 选 action、target network 评价它：</p><div class="equation"><code>a* = argmax_a Qθ(s',a)　　y = r+γQθ⁻(s',a*)</code></div>
+<p>选择和评价未完全独立，但能显著缓解 maximization bias。TD3/SAC 的 twin critics 是连续 actor-critic 中相关的保守机制。</p>
+
+<h2>7. 常见扩展解决不同问题</h2>
+<table><thead><tr><th>扩展</th><th>核心改动</th><th>目标</th></tr></thead><tbody>
+<tr><td>Double DQN</td><td>分离 action selection/evaluation</td><td>减少过估计</td></tr>
+<tr><td>Dueling network</td><td>分别估 <code>V(s)</code> 与相对 <code>A(s,a)</code></td><td>动作相近时共享状态价值</td></tr>
+<tr><td>n-step return</td><td>混入更多真实 reward</td><td>更快传播稀疏回报</td></tr>
+<tr><td>Distributional RL</td><td>预测 return distribution 而非均值</td><td>表达风险与分布结构</td></tr>
+<tr><td>Rainbow</td><td>组合多项扩展</td><td>更强 Atari baseline</td></tr>
+</tbody></table>
+
+<h2>8. 为什么 DQN 不适合直接输出连续关节动作</h2>
+<p>DQN 需要计算 <code>max_a Q(s,a)</code>。有限离散动作可枚举；几十维连续 action 无法逐点搜索。DDPG/TD3/SAC 引入 actor <code>a=π(s)</code> 来近似寻找高 Q action，PPO 则直接优化连续 action distribution。</p>
+
+<h2>9. 必须监控的量</h2>
+<ul><li>evaluation return/成功率，而非只看训练 ε-greedy return；</li><li>Q mean/max、TD error、target magnitude，检查 value explosion；</li><li>buffer age/coverage、update-to-data ratio；</li><li>episode length、termination/truncation、不同 seed 方差；</li><li>action visitation 与 reward component，检查策略是否卡死或钻漏洞。</li></ul>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>replay 让算法更 sample-efficient，不代表 gradient step 越多越好。固定数据反复更新会过拟合 bootstrap error；update-to-data ratio 也是需要验证的超参数。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. target network 为什么不能和 online network 每步完全同步？</summary><p>那会恢复快速移动的 bootstrap target，使预测追逐自身并加剧不稳定。</p></details><details><summary>2. Double DQN 的两个网络分别做什么？</summary><p>online network 选下一 action，target network 评价该 action 的 value。</p></details><details><summary>3. 为什么 replay 中需要保存 terminated，而不只保存 done？</summary><p>要区分真实 terminal 与 time-limit truncation，决定 value target 是否 bootstrap。</p></details></section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://www.nature.com/articles/nature14236">Mnih et al., Human-level control through deep reinforcement learning</a> 提出 DQN 的 replay、target network 与 Atari 实验；基础 Q-learning 见 <a href="https://incompleteideas.net/book/the-book-2nd.html">Sutton &amp; Barto</a>。</p></div><nav class="article-series-nav"><a href="/notes/rl-training/02-value-bellman-td/">← 上一篇：Value 与 TD</a><a href="/notes/rl-training/04-policy-gradient-actor-critic-gae/">下一篇：Policy Gradient →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

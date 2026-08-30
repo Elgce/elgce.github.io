@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="从 probability ratio、clipped surrogate objective、GAE、value loss、entropy 到完整 rollout-update 循环理解 PPO。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | PPO 核心逻辑</title></head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/rl-training/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 10 · 初稿待学习</span><p class="eyebrow">有限复用 on-policy rollout</p><h1>PPO：Clipped Policy Update</h1><p class="learning-header__lead">PPO 先用 old policy 采一批 trajectory，再对同一批数据做若干轮 minibatch 更新。Importance ratio 衡量新旧策略对已采样 action 的概率变化，clip surrogate 抑制那些还想继续把概率推得过远的样本贡献。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>PPO-Clip 不是把参数、gradient 或真实 KL 严格限制在某个区间；它裁剪单样本 surrogate 中的 probability ratio 收益，近似鼓励小步更新。</strong></p></div>
+
+<h2>1. 新旧策略概率比</h2><div class="equation"><code>r_t(θ)=πθ(a_t|s_t) / π_old(a_t|s_t)=exp(logπθ−logπ_old)</code></div>
+<p><code>r=1</code> 表示新策略对该 action 的概率没变；<code>r&gt;1</code> 提高，<code>r&lt;1</code> 降低。用 log-prob 相减再 exp 比直接除概率更稳定。</p>
+
+<h2>2. Clipped surrogate objective</h2><div class="equation"><code>Lclip=E[min(r_t Â_t, clip(r_t,1−ε,1+ε) Â_t)]</code></div>
+<ul><li><code>Â&gt;0</code>：希望提高该 action 概率；超过 <code>1+ε</code> 后不再从这个 surrogate 获得额外好处。</li><li><code>Â&lt;0</code>：希望降低概率；低于 <code>1−ε</code> 后不再获得额外好处。</li></ul>
+<p><code>min</code> 选择悲观项。Clip 并不会阻止共享参数因其他样本继续移动，也不保证整分布 KL 有硬上界，所以实践还会监控 approximate KL 并 early stop。</p>
+
+<h2>3. PPO 的完整 loss</h2><div class="equation"><code>L_total = −Lclip + c_v L_value − c_H H(π)</code></div>
+<p>policy loss 最大化 clipped objective；value loss 拟合 <code>R̂_t=Â_t+V_old(s_t)</code> 或其他 return target；entropy bonus 保持探索。很多实现也 clip value update，但这不是原始 PPO-Clip 必须部分。</p>
+
+<h2>4. 一次 rollout-update</h2><pre><code>repeat iteration:
+  freeze π_old ← πθ
+  collect T steps × N parallel envs:
+      save obs, action, reward, terminated, value, logp_old
+  bootstrap V(last_obs)
+  compute GAE advantages and return targets backward
+  normalize advantages over the training batch
+  for epoch in 1..K:
+      shuffle into minibatches
+      recompute logp, entropy, value under current θ
+      ratio = exp(logp - logp_old)
+      optimize clipped policy + value - entropy
+      optionally stop epochs if KL too large</code></pre>
+
+<h2>5. 为什么数据仍是 on-policy</h2>
+<p>rollout 来自刚冻结的 <code>π_old</code>；ratio 只校正有限偏移。做更多 epochs 后 current policy 离 behavior policy 越远，clip 样本增加、effective sample size 下降。PPO 不像 SAC 那样把跨很多版本的数据长期放 replay buffer。</p>
+
+<h2>6. GAE 与并行环境</h2>
+<p><code>N×T</code> 决定一次 update 的样本量。更多 env 提高并行吞吐和状态多样性；更长 horizon 帮助 credit assignment，却增加显存和 policy lag。大规模机器人 PPO 常在 GPU 同时模拟数千环境，因为其弱 sample reuse 被廉价并行 experience 抵消。</p>
+
+<h2>7. 关键实现细节</h2>
+<ul><li>observation/reward normalization 统计必须区分训练更新和 evaluation 冻结。</li><li>continuous action 要明确 Gaussian 的 std、tanh/squash、环境 action scale 和 log-prob correction。</li><li>正确处理 terminated/truncated 与 final observation，避免 autoreset 吃掉 bootstrap state。</li><li>advantage normalization 改变 batch 内 gradient scale，不是理论 objective 必需项。</li><li>gradient norm clipping、orthogonal init、learning-rate annealing 常影响结果，但应通过 ablation 判断。</li><li>随机 seed、环境版本、control dt、reward scale 和 network architecture 都要记录。</li></ul>
+
+<h2>8. 训练面板该看什么</h2>
+<table><thead><tr><th>指标</th><th>含义</th><th>异常信号</th></tr></thead><tbody>
+<tr><td>approx KL</td><td>新旧 policy 偏移</td><td>突然很大常伴随 collapse</td></tr>
+<tr><td>clip fraction</td><td>ratio 被 clip 的样本比例</td><td>长期接近 1 表示更新过猛/数据太旧</td></tr>
+<tr><td>entropy / action std</td><td>探索尺度</td><td>过早归零会锁死策略</td></tr>
+<tr><td>explained variance</td><td>critic 对 return 的解释度</td><td>负值表示比常数 baseline 还差</td></tr>
+<tr><td>policy/value loss</td><td>优化器目标</td><td>不能单独等价为性能</td></tr>
+<tr><td>episodic return/success</td><td>环境结果</td><td>必须拆 reward components 和 eval seeds</td></tr>
+</tbody></table>
+
+<h2>9. PPO 适合与不适合</h2>
+<div class="compare-grid"><div class="compare-card"><h3>适合</h3><p>仿真可大量并行、动作连续/离散、实现需要简单稳健 baseline、policy 必须直接采样。</p></div><div class="compare-card"><h3>不占优</h3><p>真实交互昂贵、必须高度复用历史数据、纯 offline dataset、长序列 rollout 成本远高于反向传播。</p></div></div>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>clip range 设小不自动保证安全更新。learning rate、epochs、minibatch、advantage scale、policy std 和样本相关性共同决定实际 KL。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 正 advantage 且 ratio=1.4、ε=0.2 时发生什么？</summary><p>该样本的正向收益按 1.2 倍 advantage 封顶；但参数仍可能因其他样本继续变化。</p></details><details><summary>2. 为什么 PPO 可以一批数据训练多个 epoch，却不能无限训练？</summary><p>ratio/clip 允许有限 policy shift；随着 current policy 远离 behavior policy，数据越来越 off-policy，估计质量恶化。</p></details><details><summary>3. critic loss 下降为什么不保证 policy 变好？</summary><p>critic 只拟合采样 return；它可能更准地预测一个差策略，actor update 还取决于 advantage 与 policy optimization。</p></details></section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://arxiv.org/abs/1707.06347">Schulman et al., Proximal Policy Optimization Algorithms</a> 定义 clipped/KL variants；<a href="https://openai.com/index/openai-baselines-ppo/">OpenAI PPO introduction</a> 给出原始实现背景；GAE 来自 <a href="https://arxiv.org/abs/1506.02438">Schulman et al. 2015</a>。</p></div><nav class="article-series-nav"><a href="/notes/rl-training/04-policy-gradient-actor-critic-gae/">← 上一篇：Actor-Critic</a><a href="/notes/rl-training/06-ddpg-td3-sac/">下一篇：TD3 与 SAC →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="理解 Flow-GRPO 如何把 flow-matching 的确定性 ODE sampler 改写成边缘分布等价的 SDE，从而对生成轨迹做 group-relative RL。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | Flow-GRPO</title></head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/rl-training/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">10 / 10 · 初稿待学习</span><p class="eyebrow">让 flow-matching sampler 成为随机策略</p><h1>Flow-GRPO：从 ODE 到可探索的 SDE</h1><p class="learning-header__lead">这里的 Flow-GRPO 特指用于 flow-matching 图像生成的 NeurIPS 2025 方法：把确定性 ODE sampling 转成具有相同时间边缘分布的 SDE，得到可采样、可计算 transition likelihood 的轨迹，再做 group-relative policy optimization。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>难点不是把 GRPO loss 抄到图像上，而是先把确定性 flow 轨迹变成有探索噪声、且每一步概率可评估的 stochastic policy。</strong></p></div>
+
+<h2>1. Flow matching 原本在做什么</h2>
+<p>给定条件 <code>c</code>，模型学习随时间变化的 velocity field，把 noise <code>x₀</code> 沿 ODE 搬运到 data sample <code>x₁</code>：</p>
+<div class="equation"><code>dx_t = vθ(x_t, t, c) dt</code></div>
+<p>数值求解器反复调用模型，从噪声走到图像。监督 flow-matching 通常回归目标 velocity；它不直接优化 OCR、审美、组合正确性等最终 reward。</p>
+
+<h2>2. 为什么不能直接套 PPO/GRPO</h2>
+<p>ODE 在给定初始 noise 后是确定性的。离散一步近似为 <code>x_{t+Δ}=x_t+vθΔ</code>，没有一个带方差的 action distribution：</p>
+<ul><li>同一初始状态缺少局部随机探索；</li><li>transition 是退化 delta distribution，普通 Gaussian log-prob/ratio 不成立；</li><li>无法像 token policy 那样直接保存每步 <code>log πold(a|s)</code>。</li></ul>
+<p>只在初始 noise 上采样当然能得到多张图，但还不足以构造稳定的逐 denoising-step policy ratio。</p>
+
+<h2>3. ODE-to-SDE 的桥</h2>
+<p>Flow-GRPO 构造一个 stochastic differential equation，在连续时间下保持原 probability path 的时间边缘分布，同时加入 diffusion：</p>
+<div class="equation"><code>dx_t = bθ(x_t,t,c) dt + σ(t) dW_t</code></div>
+<p>drift <code>bθ</code> 由原 flow velocity 与 score-related correction 组合，使每个时刻的 marginal 与原 ODE 对齐。离散后，每一步成为均值由模型决定、方差已知的 Gaussian transition，于是能计算 old/current transition log-prob 和 importance ratio。具体符号会随时间方向、插值 convention 改变，不能脱离论文公式自行复制正负号。</p>
+
+<h2>4. Group-relative reward 怎样进入图像轨迹</h2>
+<pre><code>for prompt c:
+    sample G stochastic denoising trajectories
+    decode final images and score r₁...rG
+    normalize rewards within prompt → A₁...AG
+
+for selected denoising transitions:
+    ratio = pθ(x_next | x_t,c) / pold(x_next | x_t,c)
+    maximize clipped ratio × image-level A
+    optionally regularize toward reference model</code></pre>
+<p>与 LLM GRPO 类似，最终图像 reward 作为整条 trajectory 的相对 advantage；不同之处是 action/transition 是连续 latent，概率来自 SDE 离散转移，而非 categorical token distribution。</p>
+
+<h2>5. Denoising reduction</h2>
+<p>完整反向传播每个 sampling step 很贵。论文提出 denoising reduction：rollout 仍走足够的推理步以保持样本质量，但每次 policy update 只选部分 denoising steps 计算 gradient。这是在计算量与 temporal credit coverage 间折中，不是简单把最终推理步数砍掉。</p>
+
+<h2>6. 一次训练中有哪些模型与数据</h2>
+<ul><li>pretrained flow model，常只训练 LoRA 等少量参数；</li><li>old/rollout policy，用于生成并记录 trajectory statistics；</li><li>可选 reference policy，限制漂移；</li><li>image reward model/verifier，如 text alignment、OCR、aesthetic；</li><li>prompt group、初始 noise、每步 latent/noise/log-prob 和最终 image。</li></ul>
+<p>显存和 I/O 常由保存多条高维 latent trajectory 主导，需要 checkpointing、分步重算或分布式 rollout。</p>
+
+<h2>7. 实现最容易错在哪里</h2>
+<ol><li><strong>sampler 不一致：</strong>训练 log-prob 必须对应实际用的 SDE discretization、noise schedule 与时间方向；</li><li><strong>精度不一致：</strong>rollout 与训练重算的 transition mean 不同，会让更新前 ratio 不为 1；</li><li><strong>噪声没保存：</strong>不能从结果 latent 猜回实际 stochastic transition；</li><li><strong>reward hacking：</strong>OCR/美学模型可能被纹理和 prompt 模板欺骗；</li><li><strong>统一末端 advantage：</strong>最终分数无法指出是哪一步改善了文字或构图；</li><li><strong>探索过强：</strong>diffusion 太大虽增加 diversity，也会破坏 pretrained path。</li></ol>
+
+<h2>8. 与相邻概念分清</h2>
+<table><thead><tr><th>方法</th><th>策略/轨迹</th><th>关键概率</th></tr></thead><tbody>
+<tr><td>LLM GRPO</td><td>token 序列</td><td>categorical token probability</td></tr><tr><td>Diffusion RL</td><td>随机 denoising chain</td><td>Gaussian reverse transition</td></tr><tr><td>Flow-GRPO</td><td>ODE 转换后的 stochastic flow trajectory</td><td>等边缘 SDE 的 transition density</td></tr><tr><td>机器人 flow policy</td><td>生成 action chunk 的 flow model</td><td>是否能直接套用取决于 sampler 与 reward setup</td></tr>
+</tbody></table>
+<p>此外，后续文献中也可能有同名 “Flow-GRPO” 指 agentic workflow/planning；名字相同不代表与这篇 flow-matching 图像方法同一算法。</p>
+
+<h2>9. 论文结果该怎样读</h2>
+<p>原论文在其配置中报告 GenEval 从 63% 提升到 95%、text rendering 从 59% 提升到 92%。这些数字说明方法在特定 base model、reward 和 benchmark 下有效，不代表换模型、prompt 分布或 reward 后仍有同样增益；应同时检查 diversity、非 reward 指标和人工评测。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>ODE-to-SDE 不是随意往 velocity 上加噪声。关键约束是 stochastic process 的 marginal path 与原 flow 对齐，并且训练时使用的 transition density 必须与实际 sampler 一致。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 为什么确定性 ODE 没有普通 PPO 所需的 ratio？</summary><p>给定状态后的下一步是 delta transition，没有可用的非退化 action density 来比较 old/current policy。</p></details><details><summary>2. SDE conversion 同时提供了哪两样东西？</summary><p>局部 stochastic exploration，以及每步可计算的 transition likelihood。</p></details><details><summary>3. denoising reduction 和减少推理步数相同吗？</summary><p>不同。前者主要减少参与 gradient update 的时间步，rollout 仍可保留完整采样步以维持质量。</p></details></section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://arxiv.org/abs/2505.05470">Flow-GRPO 论文</a>给出 ODE-to-SDE、group-relative update 与 denoising reduction；<a href="https://github.com/yifan123/flow_grpo">官方实现</a>包含训练配置、数值精度与 on-policy ratio 的实践说明。</p></div><nav class="article-series-nav"><a href="/notes/rl-training/09-grpo/">← 上一篇：GRPO</a><a href="/notes/rl-training/">返回系列目录 →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

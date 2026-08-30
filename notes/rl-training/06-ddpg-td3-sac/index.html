@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="比较连续控制中的 DDPG、TD3 与 Soft Actor-Critic，理解 replay、twin critics、target smoothing、maximum entropy 和 temperature。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | DDPG、TD3 与 SAC</title></head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/rl-training/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">06 / 10 · 初稿待学习</span><p class="eyebrow">连续动作的 off-policy actor-critic</p><h1>DDPG、TD3 与 SAC</h1><p class="learning-header__lead">连续动作无法像 DQN 那样枚举 <code>argmax_a Q(s,a)</code>。这组算法额外训练 actor 产生高 Q action，并用 replay buffer 重复利用交互；差异集中在 actor 是确定还是随机、如何控制 Q 高估、如何产生探索。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>DDPG 是 deterministic actor + single critic；TD3 用 twin critics、delayed actor update 和 target smoothing 修补高估；SAC 用 stochastic actor + maximum entropy，并通常也使用 twin critics。</strong></p></div>
+
+<h2>1. 共享骨架</h2><pre><code>environment → replay D(s,a,r,s',done)
+                  ↓ sample
+critic Q(s,a) ← Bellman target from target networks
+                  ↓ ∇_a Q
+actor π(s) / π(a|s) ← choose actions with high Q
+target networks ← slow Polyak update</code></pre>
+<p>critic 可用旧数据做 off-policy TD update；actor 利用可微 Q 对 action 的梯度，不需要对真实 environment 求导。</p>
+
+<h2>2. DDPG</h2>
+<div class="equation"><code>y=r+γQ_target(s', μ_target(s'))</code></div><div class="equation"><code>J_actor=E[Q(s, μ(s))]</code></div>
+<p>deterministic actor <code>μ(s)</code> 直接输出 action；采集时另加 Gaussian/OU noise 探索。DDPG 数据效率高于纯 on-policy，但 single critic 的误差会被 actor 主动利用：actor 总往 Q 被偶然高估的 action 移动，训练容易脆弱。</p>
+
+<h2>3. TD3 的三个修正</h2>
+<ol><li><strong>Clipped Double Q：</strong>两个 critic target 取较小值，抑制过估计。</li><li><strong>Delayed policy update：</strong>critic 更新多次后再更新 actor/target，减少 actor 追逐瞬时 Q error。</li><li><strong>Target policy smoothing：</strong>target action 加截断噪声，逼 critic 对邻域动作平滑，避免尖锐虚假峰值。</li></ol>
+<div class="equation"><code>y=r+γ min_i Q_i,target(s', clip(μ_target(s')+ε))</code></div>
+
+<h2>4. SAC 的 maximum-entropy objective</h2><div class="equation"><code>J(π)=E[Σ_t γ^t(r_t+α H(π(·|s_t)))]</code></div>
+<p>策略既追求 reward，也保留 entropy。常见 continuous SAC 用 tanh-squashed Gaussian actor，通过 reparameterization <code>a=tanh(μ+σε)</code> 让 actor gradient 穿过 sample。</p>
+
+<h2>5. Soft Bellman target 与 actor</h2><div class="equation"><code>y=r+γ[min(Q₁',Q₂')−α logπ(a'|s')],　a'~π</code></div><div class="equation"><code>J_actor=E[α logπ(a|s)−min(Q₁,Q₂)]</code></div>
+<p>低 <code>logπ</code> 对应更分散的行为；<code>α</code> 决定 reward 与 entropy 的权衡。automatic entropy tuning 通过 target entropy 学 α，但 target 只是设计选择，不是环境自动给出的真值。</p>
+
+<h2>6. DDPG、TD3、SAC 比较</h2>
+<table><thead><tr><th></th><th>DDPG</th><th>TD3</th><th>SAC</th></tr></thead><tbody>
+<tr><td>actor</td><td>deterministic</td><td>deterministic</td><td>stochastic</td></tr>
+<tr><td>critics</td><td>通常 1</td><td>2，target 取 min</td><td>2，soft target 取 min</td></tr>
+<tr><td>exploration</td><td>外加 action noise</td><td>外加 action noise</td><td>策略 entropy 自带</td></tr>
+<tr><td>policy update</td><td>每轮</td><td>delayed</td><td>通常每轮/按实现</td></tr>
+<tr><td>主要价值</td><td>奠定连续 deep actor-critic</td><td>简单强 deterministic baseline</td><td>稳健、数据复用、探索自然</td></tr>
+</tbody></table>
+
+<h2>7. Action distribution 的细节</h2>
+<ul><li>network 常输出归一化 <code>[-1,1]</code>，再按 actuator range scale；训练和环境必须同一单位。</li><li>SAC 的 tanh log-prob 要包含 Jacobian correction，接近饱和边界时数值尤其敏感。</li><li>policy 输出的位置目标与 torque action 对 dynamics 和 reward scale 完全不同。</li><li>action repeat/control dt 改变 MDP，一套超参不可直接搬。</li></ul>
+
+<h2>8. Replay 与 update-to-data ratio</h2>
+<p>每个 environment step 做多少 gradient steps 决定数据复用和计算量。UTD 太小浪费经验；太大可能过拟合 replay distribution、放大 bootstrap error并损失 network plasticity。需要同时看 online return、held-out critic error、Q magnitude 和 buffer coverage。</p>
+
+<h2>9. PPO 还是 SAC</h2>
+<div class="compare-grid"><div class="compare-card"><h3>常偏向 PPO</h3><p>GPU 仿真可产生海量并行数据；希望一个简单 on-policy baseline；replay 管理和 Q instability 成本不划算。</p></div><div class="compare-card"><h3>常偏向 SAC/TD3</h3><p>真实交互昂贵或环境吞吐低；连续动作；需要重复利用历史 experience；可接受更复杂 critic 调试。</p></div></div>
+<p>“SAC 更 sample-efficient”不等于 wall-clock 更快。数千 GPU env 的 PPO 可能更快达到结果；真实机器人每一步昂贵时 SAC 的数据复用更有意义。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>SAC 的 entropy 不是永远让部署动作随机。evaluation 常用 actor mean/mode；训练中的 entropy 主要帮助探索和避免过早收缩，但目标 entropy 过高也会损害精确控制。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. TD3 为什么 target 取两个 Q 的较小值？</summary><p>actor 容易利用正向估计误差；取 min 引入保守偏差来抑制系统性过估计。</p></details><details><summary>2. SAC 为什么仍需要 replay buffer？</summary><p>critic 和 actor 都基于 off-policy state/action 数据更新，buffer 允许重复利用旧经验并打散相关性。</p></details><details><summary>3. target policy smoothing 和采集探索噪声是一回事吗？</summary><p>不是。前者加在 Bellman target action 上正则化 Q；后者加在 environment action 上产生探索数据。</p></details></section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://arxiv.org/abs/1509.02971">DDPG</a> 建立 deep deterministic actor-critic；<a href="https://proceedings.mlr.press/v80/fujimoto18a.html">TD3</a> 给出三项误差控制；<a href="https://proceedings.mlr.press/v80/haarnoja18b.html">Soft Actor-Critic</a> 定义 off-policy maximum-entropy actor-critic。</p></div><nav class="article-series-nav"><a href="/notes/rl-training/05-ppo/">← 上一篇：PPO</a><a href="/notes/rl-training/07-offline-and-model-based-rl/">下一篇：Offline 与 World Model →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

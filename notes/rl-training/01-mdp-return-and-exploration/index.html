@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="从零理解强化学习的 agent、environment、MDP、policy、trajectory、reward、discounted return 与 exploration。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | MDP、回报与探索</title></head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/rl-training/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">01 / 10 · 初稿待学习</span><p class="eyebrow">从一次 action 改变未来开始</p><h1>MDP、回报与探索</h1><p class="learning-header__lead">监督学习从固定标签学习映射；强化学习选择动作、改变接下来会看到的数据，并承受延迟结果。它难的不是“没有 loss”，而是训练分布由正在变化的策略自己产生。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>强化学习让策略通过环境交互最大化轨迹回报：一个动作既影响即时 reward，也改变未来 state、未来数据和未来能获得的 reward。</strong></p></div>
+
+<h2>1. 最小交互循环</h2>
+<pre><code>state / observation s_t
+        ↓
+policy π(a|s) → action a_t → environment
+                                  ↓
+                         reward r_t, next state s_{t+1}</code></pre>
+<p>一段 <code>s₀,a₀,r₀,s₁,...</code> 叫 trajectory/rollout/episode。机器人 action 可能是关节目标或力矩；游戏 action 是按键；LLM action 是下一个 token；图像 flow RL 中，一次 denoising transition 也可以被构造成 action。</p>
+
+<h2>2. MDP 的五元组</h2>
+<div class="equation"><code>MDP = (S, A, P, R, γ)</code></div>
+<table><thead><tr><th>符号</th><th>含义</th><th>例子</th></tr></thead><tbody>
+<tr><td><code>S</code></td><td>state space</td><td>机器人位姿、速度、接触状态</td></tr>
+<tr><td><code>A</code></td><td>action space</td><td>离散按钮或连续关节命令</td></tr>
+<tr><td><code>P(s'|s,a)</code></td><td>transition dynamics</td><td>执行动作后下一个状态分布</td></tr>
+<tr><td><code>R</code></td><td>reward rule/distribution</td><td>前进、能耗、跌倒、成功</td></tr>
+<tr><td><code>γ</code></td><td>discount factor</td><td>未来奖励相对当前的权重</td></tr>
+</tbody></table>
+<p>Markov 假设要求当前 state 已包含预测未来所需的信息。相机图像或带延迟的传感器往往只是 observation，真实 state 不可完全见，此时更接近 POMDP；可用 history、RNN/belief state 或状态估计补足。</p>
+
+<h2>3. Policy 与 Return</h2>
+<p>策略 <code>πθ(a|s)</code> 可以是随机分布，也可以确定地输出动作。目标不是最大化一步 reward，而是期望累积回报：</p>
+<div class="equation"><code>G_t = r_t + γr_{t+1} + γ²r_{t+2} + ...　　J(θ)=E_{τ~πθ}[G₀]</code></div>
+<p><code>γ</code> 越接近 1，远期影响越重要，估计方差和有效 horizon 也越大。episodic task 可在终止时自然截断；continuing task 还要明确平均回报或折扣目标。</p>
+
+<h2>4. Termination 与 Truncation</h2>
+<ul><li><strong>termination：</strong>真正进入任务终止状态，如失败、成功、吸收状态；bootstrap 通常为 0。</li><li><strong>truncation：</strong>仅因 time limit、数据切片或机器重启停止；环境本身未终止，value target 通常仍应 bootstrap。</li></ul>
+<p>把所有 <code>done</code> 都当 terminal 会系统性低估 time-limit 附近的 value，是很多 RL 实现的隐蔽 bug。</p>
+
+<h2>5. Reward 是优化接口，不是评价报告</h2>
+<p>reward 告诉训练算法什么行为被强化；evaluation metric 衡量真正关心的结果。两者可以不同。例如机器人训练 reward 包含速度 tracking、姿态、能耗、动作平滑和跌倒 penalty，但最终评测还应独立报告成功率、能耗、碰撞和鲁棒性。</p>
+<div class="equation"><code>r = w_task r_task − w_energy‖τ·dq‖ − w_smooth‖a_t−a_{t−1}‖² − w_fail 1_fail</code></div>
+<p>权重改变等价于改变任务。dense shaping 能帮助学习，也可能创造捷径；稀疏成功 reward 更贴近目标，却让探索和 credit assignment 更困难。</p>
+
+<h2>6. RL 的三类核心困难</h2>
+<table><thead><tr><th>困难</th><th>问题</th><th>常见工具</th></tr></thead><tbody>
+<tr><td>探索</td><td>没有尝试过的行为，其回报未知</td><td>随机策略、entropy、ε-greedy、intrinsic reward</td></tr>
+<tr><td>credit assignment</td><td>终点 reward 应归功于哪些早期动作</td><td>value/advantage、TD、GAE、stepwise reward</td></tr>
+<tr><td>non-stationary data</td><td>policy 更新后采样分布也变化</td><td>on-policy refresh、importance ratio、replay corrections</td></tr>
+</tbody></table>
+
+<h2>7. 一张算法坐标图</h2>
+<table><thead><tr><th>维度</th><th>一端</th><th>另一端</th></tr></thead><tbody>
+<tr><td>学什么</td><td>value-based：Q-learning/DQN</td><td>policy-based：REINFORCE/PPO</td></tr>
+<tr><td>数据</td><td>on-policy：主要用当前策略数据</td><td>off-policy：可复用其他/旧策略数据</td></tr>
+<tr><td>环境模型</td><td>model-free：不显式预测 dynamics</td><td>model-based：学习/已知模型并规划或想象</td></tr>
+<tr><td>动作</td><td>discrete：可枚举 argmax</td><td>continuous：通常需要 actor 或优化器</td></tr>
+</tbody></table>
+<p>PPO 是 on-policy actor-critic；SAC 是 off-policy maximum-entropy actor-critic；GRPO 是 group-relative 的 online policy optimization；这些标签说明数据和更新逻辑，不表示某一个必然更先进。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>“reward 上升”不等于任务真的解决。策略可能利用 simulator bug、reward model 漏洞、episode length 或 reset 逻辑；必须用独立指标、视频/样本和分布外场景验证。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 为什么 action 会改变训练数据分布？</summary><p>action 改变未来 state；策略偏好某些 action 后，就更常访问对应状态并从那里采样。</p></details><details><summary>2. γ=0 时策略在优化什么？</summary><p>只看即时 reward，不关心动作对更远未来的影响。</p></details><details><summary>3. time limit 到了为什么不一定把 bootstrap 设为 0？</summary><p>time limit 是数据采集截断，不一定是环境的吸收终止；真实过程仍有未来回报。</p></details></section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://incompleteideas.net/book/the-book-2nd.html">Sutton &amp; Barto, Reinforcement Learning: An Introduction</a> 系统定义 agent–environment、MDP、return 与 prediction/control；后续文章沿用其符号。</p></div>
+<nav class="article-series-nav"><a href="/notes/rl-training/">← 系列目录</a><a href="/notes/rl-training/02-value-bellman-td/">下一篇：Value 与 TD →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>
