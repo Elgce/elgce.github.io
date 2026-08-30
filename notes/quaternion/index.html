@@ -1,145 +1,16 @@
 <!DOCTYPE html>
-
-<html lang="en-us"><head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
-        integrity="sha256-4+XzXVhsDmqanXGHaHvgh1gMQKX40OUvDEBTu8JcmNs=" crossorigin="anonymous"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
-        integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
-
-    <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo&family=Noto+Serif+JP&family=Cormorant+Garamond&family=Libre+Baskerville&family=Source+Serif+Pro&family=Crimson+Text&family=Inter&family=Crimson+Pro&family=Literata&family=Ubuntu+Mono&family=Inter&family=Roboto">
-    <link rel="stylesheet" type="text/css" href="/css/style.css">
-
-    
-    <script>
-        window.MathJax = {
-            tex: {
-                inlineMath: [['$', '$'], ['\\(', '\\)']],
-                displayMath: [['$$', '$$'], ['\\[', '\\]']]
-            }
-        };
-    </script>
-    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
-    
-
-    
-    
-
-    <title>Qingwei Ben | Note of Quaternion</title>
-
-
-    
-
-</head>
-<body class="container d-flex flex-column min-vh-100">
-<main class="blog-shell">
-    <nav class="home-nav blog-topbar" aria-label="Blog navigation">
-        <a class="home-mark" href="/">Qingwei Ben</a>
-        <div class="home-nav__links">
-            <a href="/notes/">All Posts</a>
-            <a href="/">Home</a>
-        </div>
-    </nav>
-
-    <article class="post-shell">
-        <header class="post-header">
-            <p class="eyebrow">Apr 20, 2024 / 1 min read</p>
-            <h1>Note of Quaternion</h1>
-            
-            <div class="blog-card__tags">
-                
-                <a href="/tags/robotics/">#Robotics</a>
-                
-                <a href="/tags/quaternion/">#Quaternion</a>
-                
-            </div>
-            
-        </header>
-
-        <div class="post-content">
-            <p>link: <a href="https://krasjet.github.io/quaternion/quaternion.pdf">https://krasjet.github.io/quaternion/quaternion.pdf</a></p>
-<h1 id="复数">复数</h1>
-<p>设两个复数分别写作$z_1=a+bi, z_2=c+di$，有：
-$$
-z_1\cdot z_2=(ac-bd)+(bc+ad)i=\begin{bmatrix} a &amp; -b \ b &amp; a \ \end{bmatrix}\begin{bmatrix}c\d\end{bmatrix}
-$$
-由此可以写出一个复数$z_1$的矩阵形式为$\begin{bmatrix} a &amp; -b \ b &amp; a \ \end{bmatrix} = \sqrt{a^2+b^2}\begin{bmatrix} \cos\theta &amp; -\sin\theta \ \sin\theta &amp; \cos\theta \ \end{bmatrix}$
-其中$||z_1||=\sqrt{a^2+b^2}$，与$Re$夹角是$\theta$。
-复数的极坐标形式：$z=re^{i\theta}$ ($Euler Equation: e^{i\theta}=\cos\theta+i\sin\theta$)
-复数的相乘遵循交换律：$z_1z_2=z_2z_1$</p>
-<h1 id="三维空间的旋转">三维空间的旋转</h1>
-<p>假设$\vec{v}$绕着$\vec{u}$旋转$\theta$，其中$\vec{u}$是单位向量表示的旋转轴，$\vec{v}=\vec{v_\parallel}+\vec{v_\perp}$
-定义$\vec{w}=\vec{u}\times\vec{v_\perp}$
-那么旋转以后的$\vec{v_\perp}&rsquo;=\cos\theta\vec{v_\perp}+\sin\theta\vec{w}$
-由此得到$\vec{v}$绕着$\vec{u}$旋转后的表示是：
-$$
-\vec{v}&rsquo;=\vec{v_\parallel}+\cos\theta\vec{v_\perp}+\sin\theta(\vec{u}\times\vec{v_\perp})
-$$
-叉乘遵循分配律，$\vec{u}\times\vec{v_\perp}=\vec{u}\times(\vec{v}-\vec{v_\parallel})=\vec{u}\times\vec{v}$
-$$
-\mathbf{v}&rsquo; = \cos(\theta)\mathbf{v} + (1 - \cos(\theta))(\mathbf{u} \cdot \mathbf{v})\mathbf{u} + \sin(\theta)(\mathbf{u} \times \mathbf{v})
-$$</p>
-<h1 id="四元数">四元数</h1>
-<p>$q=a+bi+cj+dk,i^2=j^2=z^2=ijk=-1$
-四元数的乘法不符合交换律
-同复数，有如下公式：
-$$
-q_1q_2=\begin{bmatrix}a&amp;-b&amp;-c&amp;-d\ b&amp;a&amp;-d&amp;c\ c &amp;d &amp;a &amp;-b\ d&amp;-c&amp;b&amp;a\end{bmatrix}\begin{bmatrix}e\ f \ g\ h \end{bmatrix}
-$$
-由于不符合交换律，所以右乘结果不一样：
-$$
-q_2q_1=\begin{bmatrix}a&amp;-b&amp;-c&amp;-d\ b&amp;a&amp;d&amp;-c\ c &amp;-d &amp;a &amp;b\ d&amp;c&amp;-b&amp;a\end{bmatrix}\begin{bmatrix}e\ f \ g\ h \end{bmatrix}
-$$
-（$Grathmann$积）设任意四元数 $q_1=[s, \mathbf{v}],q_2 = [t, \mathbf{u}]$，$q_1q_2$的结果是
-$$
-q_1q_2 = [st - \mathbf{v} \cdot \mathbf{u}, st\mathbf{u} + tv\mathbf{v} + \mathbf{v} \times \mathbf{u}]
-$$
-四元数的逆：$q^{-1}=\frac{q*}{||q||^2}$
-纯四元数有：$q_1q_2=[-\vec{v}\cdot\vec{u}, \vec{v}\times\vec{u}]$</p>
-<h1 id="四元数与3d旋转">四元数与3D旋转</h1>
-<p>首先使用纯四元数表示《三维空间的旋转》部分得到的公式中的所有向量。
-$\vec{v_\perp}&rsquo;=\cos\theta\vec{v_\perp}+\sin\theta(\vec{u}\times\vec{v_\perp})$
-结合纯四元数的结果可以得到$uv_\perp=\vec{u}\times\vec{v_\perp}$（纯四元数按照标量写）
-那么有$v_\perp&rsquo;=(\cos\theta+\sin\theta u)v_\perp=qv_\perp$
-$$q=\cos\theta+\sin\theta u=[\cos\theta, \vec{0}]+[0, \sin\theta\vec{u}]=[\cos\theta, \sin\theta\vec{u}]$$
-$v&rsquo;=v_\parallel+qv_\perp$
-令$p^2=q$，那么有$p=[\cos(\theta/2), sin(\theta/2)\vec{u}]$，可以得到$v&rsquo;=pp^<em>v_\parallel+ppv_\perp$。根据引理有$v&rsquo;=pv_\parallel^</em>+pv_\perp p^<em>=pvp^</em>=pvp^{-1}$。
-求$q=[a,\vec{b}]$旋转轴以及角度的方法：
-$$
-\theta=2\arccos(a)
-$$
-$$
-\vec{u}=\frac{b}{sin(\theta)}
-$$
-<strong>四元数与3D旋转是一个2对1满射同态</strong></p>
-<h1 id="指数形式">指数形式</h1>
-<p>$q=[\cos\theta,\sin\theta\vec{u}]$可以表示为$e^{u\theta}$</p>
-<h1 id="四元数插值">四元数插值</h1>
-<p>本部分留待后续补充（基本就是用不同的数值分析插值方法）</p>
-<h1 id="欧拉角">欧拉角</h1>
-<p>泰特布莱恩角：$(x,y,z)$
-欧拉角：$(a,b,a&rsquo;)$
-问题：存在万向节死锁，丢失一个自由度</p>
-
-        </div>
-    </article>
-</main>
-<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font">
-    <span class="text-muted">Copyright (c) 2026, Qingwei Ben,
-        <a class="text-muted" href="https://github.com/hadisinaee/avicenna" target="_blank"> created by Avicenna
-            (MIT)</a>
-    </span>
-</footer><script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-ho+j7jyWK8fNQe+A12Hb8AhRq26LrZ/JpcUGGOn+Y7RsweNrtN/tE3MoK7ZeZDyx"
-    crossorigin="anonymous"></script>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.28.0/feather.min.js"></script>
-<script>
-    feather.replace()
-</script></body>
-
-</html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="从复数、Hamilton product、axis-angle 到单位四元数旋转、double cover、插值与数值实现，逐步手算并交互理解 quaternion。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><script>window.MathJax={tex:{inlineMath:[['$','$'],['\\(','\\)']],displayMath:[['$$','$$'],['\\[','\\]']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script><title>Qingwei Ben | 四元数与 3D 旋转</title></head><body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar" aria-label="Blog navigation"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/">All Posts</a><a href="/">Home</a></div></nav><article class="post-shell"><header class="post-header learning-header"><span class="draft-status">独立专题 · 第一轮精讲</span><p class="eyebrow">从 Hamilton product 到稳定的 3D rotation</p><h1>四元数：结构、计算顺序与旋转直觉</h1><p class="learning-header__lead">四元数不是“没有万向节锁的四个欧拉角”，而是一套非交换代数。单位四元数用半角编码旋转，通过 sandwich product 作用于向量；同一个物理旋转由 $q$ 和 $-q$ 两个点表示。</p></header><div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>Axis-angle $(\mathbf u,\theta)$ 先变成 $q=[\cos(\theta/2),\mathbf u\sin(\theta/2)]$，再用纯四元数 $[0,\mathbf v]$ 做 $q[0,\mathbf v]q^{-1}$；乘法顺序不能交换。</strong></p></div>
+<div class="learning-route"><span>复数的 2D 旋转</span><b>→</b><span>Hamilton basis</span><b>→</b><span>scalar-vector product</span><b>→</b><span>单位四元数</span><b>→</b><span>sandwich rotation</span><b>→</b><span>composition / SLERP</span></div>
+<figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>Axis-angle</small><strong>u, θ</strong></div><span class="process-arrow">half angle</span><div class="process-step"><small>Unit quaternion</small><strong>q=[w,x,y,z]</strong></div><span class="process-arrow">left × right</span><div class="process-step"><small>Pure vector</small><strong>q[0,v]q*</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Rotated</small><strong>[0,v′]</strong></div></div><figcaption>Unit quaternion 的 inverse 等于 conjugate；只有按 q·v·q* 的顺序才对应这里采用的 active rotation convention。</figcaption></figure>
+<h2>1. 复数先告诉我们什么</h2><p>单位复数 $z=\cos\theta+i\sin\theta$ 乘二维点，会把它绕原点旋转 $\theta$。模长相乘、角度相加，所以复数同时编码 scale 与 2D rotation。四元数把 basis 扩展为 $1,i,j,k$，但 multiplication 不再交换：</p><div class="equation">$$i^2=j^2=k^2=ijk=-1,\qquad ij=k,\;ji=-k.$$</div><p>非交换性正好容纳 3D rotation composition 的次序依赖：先绕 x 再绕 y，通常不同于先绕 y 再绕 x。</p>
+<h2>2. Scalar-vector 形式最适合手算</h2><p>写 $q=[s,\mathbf v]$。两个四元数的 Hamilton product 是：</p><div class="equation">$$[s,\mathbf v]\,[t,\mathbf u]=[st-\mathbf v\cdot\mathbf u,\;s\mathbf u+t\mathbf v+\mathbf v\times\mathbf u].$$</div><p>Conjugate 为 $q^*=[s,-\mathbf v]$，norm 为 $\|q\|=\sqrt{s^2+\mathbf v\cdot\mathbf v}$，inverse 为 $q^{-1}=q^*/\|q\|^2$。只有 unit quaternion 才能直接写 $q^{-1}=q^*$。</p>
+<h2>3. Axis-angle 为什么出现半角</h2><p>绕单位轴 $\mathbf u$ 旋转物理角度 $\theta$ 的单位 quaternion：</p><div class="equation">$$q=\left[\cos\frac\theta2,\;\mathbf u\sin\frac\theta2\right].$$</div><p>半角来自 sandwich product 左右各乘一次。恢复时应使用 $\theta=2\operatorname{atan2}(\|\mathbf q_v\|,w)$；当 $\sin(\theta/2)$ 不接近零时，axis 为 $\mathbf u=\mathbf q_v/\sin(\theta/2)$。注意分母是半角的 sine，不是 $\sin\theta$。</p>
+<h2>4. 向量怎样真正被旋转</h2><p>把 $\mathbf v$ 嵌入纯四元数 $p=[0,\mathbf v]$，active rotation 定义为：</p><div class="equation">$$p'=q\,p\,q^{-1}.$$</div><p>结果 scalar part 为 0，vector part 等价于 Rodrigues formula。若 library 使用 passive frame rotation、row vectors 或不同 quaternion component order，公式外观可能相反；必须先写清 convention。</p>
+<h2>5. 六个逐步数字例子</h2><div class="numeric-example"><p class="numeric-example__title">例 1：Hamilton basis 不交换</p><p>$i=[0,(1,0,0)]$、$j=[0,(0,1,0)]$。Scalar part 都是 0；$i\times j=k$，所以 $ij=k$。反过来 $j\times i=-k$，因此 $ji=-k$。</p></div><div class="numeric-example"><p class="numeric-example__title">例 2：conjugate 与 inverse</p><p>$q=[1,(2,0,0)]$，$\|q\|^2=1^2+2^2=5$，所以 $q^{-1}=[1,(-2,0,0)]/5=[0.2,(-0.4,0,0)]$。它不是 unit quaternion，不能只取 conjugate。</p></div><div class="numeric-example"><p class="numeric-example__title">例 3：90° 绕 z 的 quaternion</p><p>$\mathbf u=(0,0,1)$、$\theta=90°$，半角 45°：$q=[\cos45°,0,0,\sin45°]\approx[0.7071,0,0,0.7071]$。</p></div><div class="numeric-example"><p class="numeric-example__title">例 4：sandwich product 旋转 x 轴</p><p>用上例 q 和 $p=[0,1,0,0]$：先得 $qp=[0,0.7071,0.7071,0]$，再乘 $q^*=[0.7071,0,0,-0.7071]$，得 $p'=[0,0,1,0]$，即 $(1,0,0)\to(0,1,0)$。</p></div><div class="numeric-example"><p class="numeric-example__title">例 5：double cover</p><p>$q=[0.7071,0,0,0.7071]$ 与 $-q=[-0.7071,0,0,-0.7071]$ 在 $q p q^{-1}$ 中负号出现两次并抵消，所以表示同一旋转。插值前若 dot(q₀,q₁)&lt;0，通常先翻转一个符号走短弧。</p></div><div class="numeric-example"><p class="numeric-example__title">例 6：composition 的顺序</p><p>若 $q_x$ 先作用、$q_z$ 后作用，则 combined active rotation 是 $q=q_zq_x$，因为 $q_z(q_x p q_x^{-1})q_z^{-1}=(q_zq_x)p(q_zq_x)^{-1}$。写成 $q_xq_z$ 会反转动作顺序。</p></div>
+<h2>6. 拖动角度，看 quaternion 与向量一起变化</h2><div class="numeric-example"><label for="quat-angle"><strong>绕 z 轴角度：</strong> <span id="quat-angle-label">90°</span></label><input class="form-control-range" id="quat-angle" type="range" min="-180" max="180" value="90" step="1"><p>q = <code id="quat-value">[0.7071, 0, 0, 0.7071]</code></p><figure class="learning-figure"><svg viewBox="0 0 360 250" role="img" aria-label="x axis vector rotated around z axis"><line x1="180" y1="220" x2="180" y2="25" stroke="currentColor" opacity=".25"/><line x1="25" y1="125" x2="335" y2="125" stroke="currentColor" opacity=".25"/><circle cx="180" cy="125" r="92" fill="none" stroke="currentColor" opacity=".16"/><line id="quat-vector" x1="180" y1="125" x2="180" y2="33" stroke="#b04a32" stroke-width="5" stroke-linecap="round"/><circle id="quat-tip" cx="180" cy="33" r="7" fill="#b04a32"/><text x="325" y="116">+x</text><text x="188" y="35">+y</text><text id="quat-vector-label" x="194" y="55">v′=(0.00, 1.00)</text></svg><figcaption>$q=[\cos(\theta/2),0,0,\sin(\theta/2)]$ 把初始向量 $(1,0,0)$ 变成 $(\cos\theta,\sin\theta,0)$。</figcaption></figure></div>
+<h2>7. Interpolation 与数值边界</h2><ul><li><strong>Normalize：</strong>积分 angular velocity 或网络回归后，重新归一化以留在 unit 3-sphere；</li><li><strong>SLERP：</strong>沿 4D unit sphere 的 great circle 以恒定角速度插值；先处理 double-cover sign；</li><li><strong>Small angle：</strong>$\sin(\theta/2)$ 很小时 axis 不稳定，但 rotation 本身接近 identity，可用 rotation vector/series；</li><li><strong>Component order：</strong>有的 API 用 <code>[w,x,y,z]</code>，有的用 <code>[x,y,z,w]</code>；永远在边界显式转换；</li><li><strong>Normalize 不修复 convention：</strong>乘法顺序、active/passive 或 frame 写错，unit norm 仍会产生错误方向。</li></ul>
+<div class="concept-callout"><strong>常见误解：</strong><p>Quaternion 有四个数不代表 rotation 有四个自由度。Unit-norm constraint 去掉一个自由度，而 $q\sim-q$ 是离散 double cover；最终仍是 3-DOF rotation。它避免 Euler parameterization 的 gimbal lock，不代表所有数值表示都不会接近奇异边界。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 为什么 axis-angle 转 quaternion 用 θ/2？</summary><p>向量通过左右 sandwich multiplication 各作用一次，最终物理 rotation angle 是 quaternion 参数角的两倍。</p></details><details><summary>2. q 和 −q 为什么表示同一旋转？</summary><p>在 q p q⁻¹ 中两个负号相消；它们是 unit 3-sphere 上映射到同一个 SO(3) rotation 的对跖点。</p></details><details><summary>3. 两个 rotation composition 为什么不能交换？</summary><p>Hamilton product 含 vector cross product，交换次序会翻转 cross term；3D sequential rotations 本身也通常不交换。</p></details><details><summary>4. 插值前为什么检查 quaternion dot product？</summary><p>若 dot&lt;0，两个表示位于 4D sphere 的相反半球；翻转一个 quaternion 不改物理姿态，却让 SLERP 选择较短路径。</p></details></section>
+<div class="source-list"><h3>一手与官方资料</h3><p><a href="https://dl.acm.org/doi/10.1145/325334.325242">Shoemake, Animating Rotation with Quaternion Curves</a>提出计算机图形中的 quaternion interpolation；<a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.spatial.transform.Rotation.html">SciPy Rotation 官方文档</a>明确 component representation、composition 与 conversion；<a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Tf2/Quaternion-Fundamentals.html">ROS 2 tf2 Quaternion Fundamentals</a>说明 normalize、inverse、relative rotation 与 RPY conversion。</p></div><nav class="article-series-nav"><a href="/notes/">← 返回全部文章</a><a href="/notes/control-and-mpc/03-state-space-controllability-observability/">继续：State-space →</a></nav>
+</div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer><script>(()=>{const slider=document.getElementById('quat-angle');const label=document.getElementById('quat-angle-label');const value=document.getElementById('quat-value');const vector=document.getElementById('quat-vector');const tip=document.getElementById('quat-tip');const vectorLabel=document.getElementById('quat-vector-label');function render(){const deg=Number(slider.value);const rad=deg*Math.PI/180;const half=rad/2;const w=Math.cos(half);const z=Math.sin(half);const x=180+92*Math.cos(rad);const y=125-92*Math.sin(rad);label.textContent=`${deg}°`;value.textContent=`[${w.toFixed(4)}, 0, 0, ${z.toFixed(4)}]`;vector.setAttribute('x2',x.toFixed(2));vector.setAttribute('y2',y.toFixed(2));tip.setAttribute('cx',x.toFixed(2));tip.setAttribute('cy',y.toFixed(2));vectorLabel.setAttribute('x',Math.min(245,x+12).toFixed(2));vectorLabel.setAttribute('y',Math.max(24,y-12).toFixed(2));vectorLabel.textContent=`v′=(${Math.cos(rad).toFixed(2)}, ${Math.sin(rad).toFixed(2)})`;}slider.addEventListener('input',render);render();})();</script></body></html>
