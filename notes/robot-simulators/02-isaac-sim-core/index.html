@@ -7,14 +7,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
     <link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <title>Qingwei Ben | Isaac Sim 核心逻辑</title>
 </head>
 <body class="container d-flex flex-column min-vh-100">
 <main class="blog-shell">
 <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
-<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">02 / 05 · 初稿待学习</span><p class="eyebrow">资料快照：Isaac Sim 6.0.1</p><h1>Isaac Sim：USD、物理、Fabric 与 RTX</h1><p class="learning-header__lead">Isaac Sim 的核心不是单一 physics solver，而是让资产、场景、物理、渲染、传感器、ROS 与数据生成围绕同一份 USD 世界协同运行。理解它，要先看数据在“权威场景”和“高速运行时”之间怎样流动。</p></header>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">02 / 05 · 第一轮精讲</span><p class="eyebrow">资料快照：Isaac Sim 6.0.1</p><h1>Isaac Sim：USD、物理、Fabric 与 RTX</h1><p class="learning-header__lead">Isaac Sim 的核心不是单一 physics solver，而是让资产、场景、物理、渲染、传感器、ROS 与数据生成围绕同一份 USD 世界协同运行。理解它，要先看数据在“权威场景”和“高速运行时”之间怎样流动。</p></header>
 <div class="post-content learning-article">
 <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>USD 负责 authoring 与持久化，物理后端推进状态，Physics Tensors 服务高吞吐控制，Fabric 把运行时 transform 送给渲染，RTX/Replicator 再把场景变成传感器与训练数据。</strong></p></div>
+<div class="learning-route"><span>USD authoring</span><b>→</b><span>engine parse</span><b>→</b><span>physics step</span><b>→</b><span>Tensor API / Fabric</span><b>→</b><span>policy / RTX sensors</span><b>→</b><span>logs / persistence</span></div>
+<figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>权威描述</small><strong>USD stage</strong></div><span class="process-arrow">→</span><div class="process-step"><small>运行时物理</small><strong>PhysX / Newton</strong></div><span class="process-arrow">↗</span><div class="process-step"><small>控制</small><strong>Physics Tensors</strong></div><span class="process-arrow">↘</span><div class="process-step"><small>渲染</small><strong>Fabric → RTX</strong></div></div><figcaption>USD 适合组合与保存；每帧批量状态应留在 runtime tensor/Fabric 路径。</figcaption></figure>
 
 <h2>1. Isaac Sim 是平台，不等于 PhysX</h2>
 <table><thead><tr><th>层</th><th>职责</th><th>典型组件</th></tr></thead><tbody>
@@ -61,6 +64,11 @@ Isaac Lab：把这个世界包装成可训练、可评测的任务</code></pre>
 <h2>7. 什么时候优先选择 Isaac Sim</h2>
 <ul><li>需要高保真多相机、RTX LiDAR/Radar、ROS 2 或数字孪生工作流。</li><li>资产以 USD 为中心，需要复杂场景组合、工业 CAD/SimReady 生态。</li><li>要生成带语义标注的 perception/action/event synthetic data。</li><li>需要把训练、可视化、sensor simulation 与真实机器人接口放在同一套平台。</li></ul>
 <p>若任务只是无视觉的海量 state-based RL，完整 Kit/RTX 栈可能是额外成本；此时 Isaac Lab + Newton 的 kit-less 路径或更轻量平台值得比较。许可也应按组件核对：Isaac Sim GitHub 代码、Kit SDK、扩展和资产不能笼统视为同一许可证。</p>
+<h2>8. 四个 Isaac Sim 量级计算</h2>
+<div class="numeric-example"><p class="numeric-example__title">例 1：Tensor batch shape</p><p>2048 个环境、7-DoF 机械臂，joint position tensor 是 $2048×7$，共 14,336 个 fp32，约 $14{,}336×4=57{,}344$ bytes；一次 bulk read 比 Python 遍历 2048 个 prim 合理。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 2：physics 与 sensor 时钟</p><p>Physics 240 Hz，相机 30 Hz，每张图间隔 8 个 physics ticks；LiDAR 20 Hz 则 12 ticks。两者不能假设每帧同步到同一 tick。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 3：多相机像素吞吐</p><p>4 路 640×480 RGB、30 Hz，未压缩像素流为 $4×640×480×3×30≈110.6$ MB/s，不含 depth、标注与 renderer 中间 buffer。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 4：随机化组合</p><p>光照 5 档、材质 8 种、相机位姿 10 个 bins、对象 20 个，笛卡尔组合 $5×8×10×20=8{,}000$；随机采样不能保证有限数据均匀覆盖。</p></div>
 
 <div class="concept-callout"><strong>当前边界：</strong><p>Isaac Sim 6.0.1 已包含 Newton backend，但官方仍明确标为 experimental。不要因为上层 Tensor API 相似，就假定所有 PhysX feature、contact behavior 和 task 配置能无差别迁移。</p></div>
 <section class="learning-check"><h3>自测</h3>
