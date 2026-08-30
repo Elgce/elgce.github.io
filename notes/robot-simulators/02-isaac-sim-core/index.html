@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 Isaac Sim 的 USD 场景、PhysX/Newton 物理后端、Fabric、Tensor API、RTX 与 Isaac Lab。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | Isaac Sim 核心逻辑</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">02 / 05 · 初稿待学习</span><p class="eyebrow">资料快照：Isaac Sim 6.0.1</p><h1>Isaac Sim：USD、物理、Fabric 与 RTX</h1><p class="learning-header__lead">Isaac Sim 的核心不是单一 physics solver，而是让资产、场景、物理、渲染、传感器、ROS 与数据生成围绕同一份 USD 世界协同运行。理解它，要先看数据在“权威场景”和“高速运行时”之间怎样流动。</p></header>
+<div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>USD 负责 authoring 与持久化，物理后端推进状态，Physics Tensors 服务高吞吐控制，Fabric 把运行时 transform 送给渲染，RTX/Replicator 再把场景变成传感器与训练数据。</strong></p></div>
+
+<h2>1. Isaac Sim 是平台，不等于 PhysX</h2>
+<table><thead><tr><th>层</th><th>职责</th><th>典型组件</th></tr></thead><tbody>
+<tr><td>应用与生命周期</td><td>窗口、扩展、timeline、事件与任务编排</td><td>Omniverse Kit、extensions、OmniGraph</td></tr>
+<tr><td>场景与资产</td><td>组合、引用、variant、语义、物理与视觉属性</td><td>OpenUSD、USD Physics、engine schemas</td></tr>
+<tr><td>物理</td><td>刚体、articulation、接触与其他动力学</td><td>默认 PhysX；6.0 起实验性 Newton</td></tr>
+<tr><td>运行时数据</td><td>批量控制、状态交换、渲染 transform</td><td>Physics Tensors、Fabric</td></tr>
+<tr><td>感知与数据</td><td>相机、LiDAR、Radar、IMU、标注与随机化</td><td>RTX sensors、physics sensors、Replicator</td></tr>
+<tr><td>机器人学习</td><td>并行环境、reward、reset、RL/IL 工作流</td><td>Isaac Lab</td></tr>
+</tbody></table>
+
+<h2>2. USD 为什么是中心</h2>
+<p>USD stage 是可组合的场景图：robot、table、camera 都是 prim；几何、材质、语义和 physics schema 可以分层 author。URDF/MJCF/CAD 通常先被 importer 转成 USD 结构。按下 Play 时，物理后端解析 USD Physics 和后端 schema，构建自己的高效内部对象。</p>
+<p>但 USD 不适合每帧批量读写数千个 articulation。把训练 loop 写成“每步遍历 prim 再取属性”，会把 GPU 仿真退化成场景图与 Python 开销。</p>
+
+<h2>3. 三条数据通路</h2>
+<div class="compare-grid">
+<div class="compare-card"><h3>USD</h3><p>authoring、初始配置、持久化和停机后的场景编辑。可读、可组合，但不是 per-frame bulk state 接口。</p></div>
+<div class="compare-card"><h3>Fabric</h3><p>GPU 加速的运行时数据仓库。每帧接收 active engine 的 world transforms，连接 simulation 与 renderer。</p></div>
+<div class="compare-card"><h3>Physics Tensors</h3><p>对 articulation、rigid body、contact 做批量读写，面向 PyTorch、Warp、NumPy 控制与 RL。</p></div>
+<div class="compare-card"><h3>Core Experimental API</h3><p><code>isaacsim.core.experimental</code> 在上层统一 prim wrapper，运行时自动路由到 active engine 的 tensor API。</p></div>
+</div>
+<pre><code>USD stage ──parse──► PhysX / Newton backend
+   ▲                     │
+   │ authoring           ├──► Physics Tensors ──► policy / controller
+   │                     │
+   └── persistence       └──► Fabric ──► RTX renderer / sensors
+                                      └──► Replicator / ROS 2</code></pre>
+
+<h2>4. PhysX 在这里做什么</h2>
+<p>PhysX 是 Isaac Sim 默认且成熟的物理后端。它提供 rigid bodies、reduced-coordinate articulations、contacts、joints、FEM/PBD 等能力，并可在合适配置下使用 GPU broad phase、contact generation 与 constraint solver。<strong>“用了 Isaac Sim”不等于“所有物理自动在 GPU 上”</strong>；scene flags、碰撞几何、buffer 容量和具体 feature 都影响实际路径。</p>
+<p>Isaac Sim 6.0 还允许注册其他 physics engine。后端需解析 USD、响应 timeline/lifecycle、每帧向 Fabric 写 transform，并实现兼容的 Tensor views。Newton extension 就是这一接口的参考实现。</p>
+
+<h2>5. RTX、传感器与 Replicator</h2>
+<ul><li><strong>RTX renderer/sensors</strong> 从几何、材质、光照和 physics time 生成 camera、LiDAR、Radar 等观测。</li><li><strong>physics sensors</strong> 从 body/joint/contact state 产生 IMU、effort、contact 等读数。</li><li><strong>Replicator</strong> 用触发器和随机化图改变相机、光照、材质、物体与物理属性，再由 annotator/writer 输出 RGB、depth、segmentation、bounding boxes 或 episode 数据。</li></ul>
+<p>Isaac Sim 6 的 multitick rendering 允许相机和 RTX LiDAR 按 physics simulation time 的频率与相位调度。真实系统对齐时应分别记录 physics、sensor 与 policy 时钟，而不是假定“一帧就是一步”。</p>
+
+<h2>6. Isaac Sim 与 Isaac Lab 的边界</h2>
+<p>Isaac Sim 提供场景、物理、渲染、传感器和扩展运行时；Isaac Lab 在其上组织机器人学习环境，包括 scene cloning、observation/action、reward、termination、curriculum、randomization、recorder 与 RL/IL 接口。简单说：</p>
+<pre><code>Isaac Sim：世界怎么存在、推进和被看见
+Isaac Lab：把这个世界包装成可训练、可评测的任务</code></pre>
+<p>截至本文快照，Isaac Lab 3.0 beta 已走向 multi-backend：任务可选 PhysX 或 Newton，Newton 也可 kit-less 独立运行；这再次说明 Isaac Sim、Isaac Lab 与 physics engine 是三层概念。</p>
+
+<h2>7. 什么时候优先选择 Isaac Sim</h2>
+<ul><li>需要高保真多相机、RTX LiDAR/Radar、ROS 2 或数字孪生工作流。</li><li>资产以 USD 为中心，需要复杂场景组合、工业 CAD/SimReady 生态。</li><li>要生成带语义标注的 perception/action/event synthetic data。</li><li>需要把训练、可视化、sensor simulation 与真实机器人接口放在同一套平台。</li></ul>
+<p>若任务只是无视觉的海量 state-based RL，完整 Kit/RTX 栈可能是额外成本；此时 Isaac Lab + Newton 的 kit-less 路径或更轻量平台值得比较。许可也应按组件核对：Isaac Sim GitHub 代码、Kit SDK、扩展和资产不能笼统视为同一许可证。</p>
+
+<div class="concept-callout"><strong>当前边界：</strong><p>Isaac Sim 6.0.1 已包含 Newton backend，但官方仍明确标为 experimental。不要因为上层 Tensor API 相似，就假定所有 PhysX feature、contact behavior 和 task 配置能无差别迁移。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么 USD 不应成为 RL loop 每步读写接口？</summary><p>USD 优先服务 authoring 与持久化，不适合 per-frame 大批量状态交换；高吞吐控制应走 Tensor API，渲染 transform 走 Fabric。</p></details>
+<details><summary>2. Fabric 与 Physics Tensors 有什么区别？</summary><p>Fabric 主要承接高性能运行时场景/transform 并连接渲染；Physics Tensors 面向 control/RL 对 engine state 做批量读写。</p></details>
+<details><summary>3. Isaac Lab 为什么不是另一个物理引擎？</summary><p>它组织机器人学习环境和工作流，底层物理仍由 PhysX、Newton 等 backend 推进。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/physics/new_physics_engine.html">Physics Data Flow and Engine Integration</a> 定义 USD/Fabric/Tensors；<a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/overview/release_notes.html">Isaac Sim 6.0.1 Release Notes</a> 给出当前版本；<a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/synthetic_data_generation/index.html">Synthetic Data Generation</a> 汇总 Replicator 工作流；<a href="https://isaac-sim.github.io/IsaacLab/">Isaac Lab</a> 说明训练框架边界；<a href="https://arxiv.org/abs/2606.03551">Isaac Sim system paper</a> 给出平台总览。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-simulators/01-simulation-loop-and-physics/">← 上一篇：共同仿真循环</a><a href="/notes/robot-simulators/03-newton-core/">下一篇：Newton 核心 →</a></nav>
+</div></article>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

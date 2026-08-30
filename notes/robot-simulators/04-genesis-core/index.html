@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 Genesis World 的 Scene、Simulator、material-driven solver、多物理 coupler、并行环境、Quadrants 与 Nyx。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | Genesis World 核心逻辑</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">04 / 05 · 初稿待学习</span><p class="eyebrow">资料快照：Genesis World v1.3.3</p><h1>Genesis World：Solver 与 Coupler</h1><p class="learning-header__lead">Genesis World 把 Pythonic simulation interface、统一多物理引擎、渲染器和跨平台 kernel compiler 放进一套独立栈。它最有辨识度的设计，是让 entity 的 material 选择 solver，再由 scene-level coupler 处理不同物理方法之间的交互。</p></header>
+<div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>一个 Genesis Scene 内含一个 Simulator；Simulator 只激活场景实际需要的 solvers，并用一个 coupler 在每个 substep 交换跨 solver 的接触与作用。</strong></p></div>
+
+<h2>1. 先更新对 Genesis 的认识</h2>
+<p>2024 年的项目已演化并更名为 <strong>Genesis World</strong>。当前开源主干不是“一个生成式世界模型”，而是 conventional physics + rendering + simulation API。编译底座已从早期资料常写的 Taichi 演化为 <strong>Quadrants</strong>，照片级渲染主路线是 <strong>Nyx</strong>。理解当前系统应以新仓库与版本文档为准。</p>
+<table><thead><tr><th>层</th><th>核心职责</th><th>关键概念</th></tr></thead><tbody>
+<tr><td>Simulation Interface</td><td>资产、entity、controller、sensor、并行环境与 GUI</td><td><code>Scene</code>、<code>Entity</code>、<code>scene.step()</code></td></tr>
+<tr><td>Physics</td><td>刚体、软体、颗粒、流体和跨物理耦合</td><td>solvers + coupler + per-solver state</td></tr>
+<tr><td>Render</td><td>实时、批量与照片级 camera sensing</td><td>Rasterizer、BatchRenderer、Nyx</td></tr>
+<tr><td>Compiler</td><td>把 Python kernel 降到多种硬件后端</td><td>Quadrants、autodiff、GPU graph、fastcache</td></tr>
+</tbody></table>
+
+<h2>2. Entity 如何决定 physics solver</h2>
+<p>一个 entity 可以理解为三部分：<strong>Morph</strong> 描述几何、pose 与导入来源，<strong>Material</strong> 描述物理模型，<strong>Surface</strong> 描述视觉外观。Material 决定实体被路由到哪个 solver：</p>
+<pre><code>Scene
+└── Simulator
+    ├── RigidSolver   ← rigid robot / URDF / MJCF
+    ├── MPMSolver     ← granular / elastoplastic / viscous material
+    ├── FEMSolver     ← elastic / plastic deformable solid
+    ├── PBDSolver     ← cloth / soft body / particles
+    ├── SPHSolver     ← liquid
+    ├── SFSolver      ← Eulerian smoke / gas
+    ├── ToolSolver    ← kinematic one-way tool interaction
+    └── Coupler       ← interactions across active solvers</code></pre>
+<p>没有对应实体的 solver 不激活、不分配主要运行状态。<code>scene.build()</code> 是 authoring/runtime 边界：它冻结场景结构、分配 device arrays，并为实际配置编译需要的 kernel。USD/MJCF/URDF 是 importer 输入，不像 Isaac Sim 那样持续充当整个运行时的 scene truth。</p>
+
+<h2>3. Coupler 是“统一多物理”的关键</h2>
+<p>刚体夹爪抓 MPM 软物体、布料落在 rigid table 上、液体推动 rigid wheel，都跨越了 solver 边界。Genesis 用 scene-level coupler 处理这些界面：</p>
+<ul><li><strong>LegacyCoupler</strong>：通用旧路径，文档标记为将弃用。</li><li><strong>SAPCoupler</strong>：Semi-Analytic Primal contact formulation，适合特定 rigid–deformable 组合。</li><li><strong>IPCCoupler</strong>：Incremental Potential Contact，强调无穿透的稳健接触，但通常更昂贵。</li></ul>
+<p>“多个 solver 能放在同一 scene”不代表任意 solver × material 组合都同样成熟。双向力、摩擦、守恒、梯度和性能仍需按组合验证。</p>
+
+<h2>4. 一次 scene.step()</h2>
+<pre><code>control step dt
+  ├─ substep 1: solvers prepare → coupler resolves → solvers finish
+  ├─ substep 2: solvers prepare → coupler resolves → solvers finish
+  └─ ...
+then publish state / sensors / render</code></pre>
+<p><code>SimOptions</code> 给出全局 <code>dt</code>、<code>substeps</code>、gravity 与 differentiable mode；某个 solver 也可覆盖自己的时间参数。substeps 越多通常更稳但更慢，且不同 solver 的内部稳定条件并不相同。</p>
+<p>RigidSolver 内部使用 generalized <code>qpos/qvel</code>：先做 forward kinematics 与 mass matrix/无约束加速度，再经 broad/narrow phase 生成接触，把 contact、joint limit 与 equality constraint 转成约束修正，最后 semi-implicit integration。它的一个 constraint solver 选项名为 <code>Newton</code>，这里只指牛顿数值迭代，绝不是 Newton Physics 引擎。</p>
+
+<h2>5. 并行环境为什么写起来简单</h2>
+<p>场景定义不变，在 <code>scene.build(n_envs=B)</code> 时打开 batch dimension。之后 state getter/setter 前面多一个 <code>B</code> 维，相同 kernel 同时推进多个环境：</p>
+<pre><code>scene.build(n_envs=4096)
+qpos = robot.get_qpos()       # [4096, n_q]
+robot.control_dofs_position(target_qpos)
+scene.step()</code></pre>
+<p>同构 batch 最容易跑满 GPU；Genesis 也支持 subset reset/control、heterogeneous environments、batch rendering 和多 GPU 多进程。多 GPU 典型是一进程绑定一张卡再配 PyTorch DDP，并不是一个 physics world 自动横跨所有 GPU。</p>
+
+<h2>6. 渲染路径与 sensor 思维</h2>
+<div class="compare-grid">
+<div class="compare-card"><h3>Rasterizer</h3><p>默认快速路径，适合交互、debug 与 control loop。</p></div>
+<div class="compare-card"><h3>BatchRenderer</h3><p>面向很多并行环境的高吞吐相机输出。</p></div>
+<div class="compare-card"><h3>Nyx</h3><p>自研 GPU path tracer，以 camera sensor 插件接入，可提供 PBR、HDRI、Gaussian splats 和多 camera/env。</p></div>
+<div class="compare-card"><h3>Luisa RayTracer</h3><p>旧照片级路径，官方路线正迁移到 Nyx。</p></div>
+</div>
+<p>把 Nyx 作为 per-camera sensor 而非 scene-wide renderer，允许控制相机走快速路径、只对保留的数据帧走照片级路径。不过 Nyx 是独立 package，其公开安装状态应按当时文档核对。</p>
+
+<h2>7. 可微分物理的正确边界</h2>
+<p>开启 <code>SimOptions(requires_grad=True)</code> 后，Genesis 记录 substep 中间状态，state getter 返回与 scene 关联的 tensor，loss 可以反传到控制或参数。v1.3 release 继续扩展 differentiable rigid-body simulation。</p>
+<p>但“平台支持 autodiff”不代表全部 solver、coupler、collision 和 sensor 操作都有可靠梯度。当前文档仍把 ToolSolver 描述为 rigid tool → soft body 的临时单向可微路径；长 horizon 显存随时间增长，接触变化仍不光滑。实际支持应以安装版本和具体 solver/coupler 测试为准。</p>
+
+<h2>8. 什么时候 Genesis 特别有吸引力</h2>
+<ul><li>任务同时涉及刚体与 cloth、soft body、颗粒、液体或 smoke。</li><li>希望用同一 Python API 面向 NVIDIA/AMD GPU、Apple Metal 或 CPU 后端。</li><li>想快速构建大量 batched env，又不需要 Omniverse 完整工业栈。</li><li>研究 differentiable simulation、材料参数拟合或 rigid-soft manipulation。</li></ul>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>Genesis 的单项超高 FPS 宣传不是跨引擎结论。版本、模型、环境数、solver、contact、精度、渲染和统计方法不同，数字不能直接用于选型。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. Genesis 怎样决定一个 entity 由哪个 solver 推进？</summary><p>由 entity 的 Material 类型路由到对应 solver；scene 只激活实际需要的 solver。</p></details>
+<details><summary>2. Coupler 与 solver 的职责有什么不同？</summary><p>solver 推进自己物理域内的状态；coupler 处理不同 solver 所属实体之间的接触和交换。</p></details>
+<details><summary>3. 为什么 Nyx 设计成 camera sensor 有意义？</summary><p>同一场景可以让快速控制相机与照片级数据相机采用不同路径，避免所有 camera 都承担同样成本。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://github.com/Genesis-Embodied-AI/genesis-world">Genesis World Repository</a> 描述当前四层架构；<a href="https://genesis-world.readthedocs.io/en/latest/api_reference/engine/index.html">Physics Engine</a> 定义 solver/coupler；<a href="https://genesis-world.readthedocs.io/en/latest/user_guide/getting_started/parallel_simulation.html">Parallel Simulation</a> 解释 batch 语义；<a href="https://genesis-world.readthedocs.io/en/latest/api_reference/differentiation/index.html">Differentiable Simulation</a> 记录能力与限制；<a href="https://github.com/Genesis-Embodied-AI/genesis-world/releases/tag/v1.3.3">v1.3.3 Release</a> 是本文快照版本。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-simulators/03-newton-core/">← 上一篇：Newton</a><a href="/notes/robot-simulators/05-comparison-and-workflows/">下一篇：比较与工作流 →</a></nav>
+</div></article>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

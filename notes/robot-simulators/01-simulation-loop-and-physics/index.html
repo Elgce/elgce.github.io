@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="从状态、碰撞、约束、求解器和积分器理解机器人仿真的共同底层循环。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | 一次仿真 step 做了什么</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">01 / 05 · 初稿待学习</span><p class="eyebrow">三个仿真器共享的底层语言</p><h1>一次仿真 step 到底做了什么</h1><p class="learning-header__lead">仿真器不是“让模型动起来”的黑盒。它反复把控制输入、外力、碰撞和关节约束变成下一时刻状态，再从状态合成观测。Isaac Sim、Newton 与 Genesis 的差异，都可以放回这条循环里理解。</p></header>
+<div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>机器人仿真的核心是一个离散闭环：用当前状态和控制生成接触与约束，求解满足动力学的速度/冲量，积分到下一状态，再由传感器和渲染生成观测。</strong></p></div>
+
+<h2>1. 先分清“模型”和“状态”</h2>
+<table><thead><tr><th>部分</th><th>典型内容</th><th>变化速度</th></tr></thead><tbody>
+<tr><td>结构模型</td><td>刚体、质量/惯量、关节拓扑、碰撞形状、材质、执行器</td><td>通常在 build 后固定</td></tr>
+<tr><td>动态状态</td><td>位置/姿态、关节角、线/角速度、粒子位置</td><td>每个 physics step 更新</td></tr>
+<tr><td>控制</td><td>力矩、力、位置/速度目标、外部 wrench</td><td>按 control rate 更新</td></tr>
+<tr><td>派生量</td><td>接触点/法向、Jacobian、加速度、传感器读数</td><td>从模型与当前状态计算</td></tr>
+</tbody></table>
+<p>结构模型回答“世界由什么组成”；状态回答“这一瞬间世界在哪里、怎样运动”。高吞吐引擎通常只保存一份共享结构，再给每个并行环境保存一份状态。</p>
+
+<h2>2. 刚体动力学在求什么</h2>
+<p>对关节化机器人，常用广义坐标写成：</p>
+<div class="equation"><code>M(q) q̈ + C(q, q̇) + g(q) = τ + J(q)ᵀ λ</code></div>
+<p><code>τ</code> 是执行器输入，<code>λ</code> 是接触、摩擦、关节限位等约束产生的力或冲量。最难的往往不是自由空间里的 <code>Mq̈</code>，而是接触集合会离散变化、摩擦带不光滑、多个约束还要同时近似满足。</p>
+
+<h2>3. 一次 step 的七个阶段</h2>
+<pre><code>control u_t + state x_t
+    ↓
+1. 清力；施加重力、执行器和外力
+2. broad phase：筛出可能碰撞的形状对
+3. narrow phase：计算接触点、法向和间隙
+4. 组装关节、接触、摩擦、限位等约束
+5. solver：迭代求速度、冲量或位置修正
+6. integrator：推进到 x_{t+1}
+7. sensor / render / reward / termination / reset</code></pre>
+<p>引擎可以交换第 4–6 步的数值方法，但整体数据依赖不会消失。Newton 明确把 <code>CollisionPipeline.collide()</code> 与 <code>solver.step()</code> 分开；Genesis 在每个 substep 运行活跃 solvers，再由 coupler 处理跨求解器交互；Isaac Sim 则让后端推进物理，再把状态送到 Fabric、Tensor API 和渲染路径。</p>
+
+<h2>4. 广义坐标与最大坐标</h2>
+<div class="compare-grid">
+<div class="compare-card"><h3>广义 / reduced coordinates</h3><p>只保存关节自由度 <code>q</code>，树结构约束天然满足。对多关节机器人紧凑高效，但闭环结构和任意约束处理更复杂。</p></div>
+<div class="compare-card"><h3>最大 / maximal coordinates</h3><p>每个刚体保存 6D 位姿，再用约束把关节“锁”起来。表达通用，但状态更大，约束求解负担更重。</p></div>
+</div>
+<p>这不是精度高低的简单排序。Newton 同时提供两类 solver；PhysX articulation 典型使用 reduced coordinates；不同表述会改变状态布局、求解器和可微分路径。</p>
+
+<h2>5. 三个时钟必须分开</h2>
+<ul><li><strong>physics dt</strong>：物理积分步长，例如 1/240 s。</li><li><strong>control dt</strong>：策略/控制器多久更新一次，常为若干 physics steps。</li><li><strong>render/sensor dt</strong>：相机、LiDAR、IMU 各自采样频率和相位。</li></ul>
+<p>若控制频率为 50 Hz、物理为 200 Hz，那么一个动作通常保持 4 个 physics steps。改变 substeps、decimation 或 actuator gain，等价于改变闭环系统；不能一边改一边宣称只换了仿真器。</p>
+
+<h2>6. 为什么 GPU 并行有效</h2>
+<p>单个机器人难以填满 GPU。并行环境把相同模型的多份状态堆成 batch，让碰撞、动力学和 reset kernel 一次处理数千个 world。真正的吞吐取决于：</p>
+<ul><li>场景是否同构，碰撞对和接触数是否有容量上限；</li><li>数据是否一直留在 GPU，还是每步同步回 CPU/USD；</li><li>能否用 CUDA Graph 或类似机制减少 kernel launch 开销；</li><li>是否渲染，以及渲染分辨率、相机数和同步策略。</li></ul>
+
+<h2>7. 最小的仿真环境伪代码</h2>
+<pre><code>model = build_or_import_scene(asset, physics_params)
+state = allocate_state(batch=B)
+while training:
+    action = policy(observe(state))
+    control = actuator_model(action, state)
+    for _ in range(control_decimation):
+        contacts = collide(model, state)
+        state = solver_step(model, state, control, contacts, physics_dt)
+    obs = sensors(state, contacts)
+    reward, done = task(obs, action)
+    state[done] = reset(seed, domain_randomization)</code></pre>
+<p>换引擎时最值得对齐的不是类名，而是这里每个变量的语义、单位、顺序、频率和 reset 行为。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>更小的 <code>dt</code>、更多 solver iterations 往往提高稳定性，但不会自动让模型“更真实”。错误的碰撞几何、质量、摩擦、执行器或传感器延迟，会稳定地产生错误结果。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么接触力不只是由穿透深度唯一决定？</summary><p>接触是与质量、速度、摩擦、其他约束和数值求解共同决定的；许多实时引擎求的是满足一组离散约束的冲量或修正。</p></details>
+<details><summary>2. 为什么从 120 Hz 改成 240 Hz 后必须重新检查控制器？</summary><p>离散时间闭环变了；驱动、阻尼、动作保持时间与接触求解的有效行为都可能变化。</p></details>
+<details><summary>3. 为什么不能只用“FPS”选仿真器？</summary><p>FPS 依赖场景、环境数、solver 参数、碰撞复杂度、渲染和硬件；还没有衡量物理误差、传感器质量与工作流成本。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://newton-physics.github.io/newton/latest/guide/overview.html">Newton Core Concepts</a> 给出 Model/State/Control/Contacts 的标准循环；<a href="https://genesis-world.readthedocs.io/en/latest/api_reference/engine/index.html">Genesis Physics Engine</a> 说明 solver/coupler substep；<a href="https://nvidia-omniverse.github.io/PhysX/physx/latest/docs/Simulation.html">PhysX Simulation</a> 解释约束迭代与离散更新。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-simulators/">← 系列目录</a><a href="/notes/robot-simulators/02-isaac-sim-core/">下一篇：Isaac Sim 核心 →</a></nav>
+</div></article>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

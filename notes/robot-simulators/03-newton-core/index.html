@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 Newton Physics 的 Model、State、Control、Contacts、CollisionPipeline、可插拔 solver 与 Warp 可微分执行。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | Newton Physics 核心逻辑</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">03 / 05 · 初稿待学习</span><p class="eyebrow">资料快照：Newton Physics v1.5.1</p><h1>Newton：Model、State 与可插拔 Solver</h1><p class="learning-header__lead">Newton 是建立在 NVIDIA Warp 上的开源 GPU 物理引擎。它把资产导入、模型/状态存储、碰撞生成和 solver 拆成明确组件，使机器人学习既能复用 MuJoCo Warp，也能替换数值方法或直接对 Warp array 做批处理。</p></header>
+<div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>Newton 的核心抽象是：<code>Model</code> 保存结构，<code>State</code> 保存动态量，<code>Control</code> 保存输入，<code>Contacts</code> 保存当前接触；碰撞管线产生 contacts，选定的 solver 再把 state 推进一步。</strong></p></div>
+
+<h2>1. 先消除三个命名歧义</h2>
+<table><thead><tr><th>名字</th><th>是什么</th><th>提供什么</th></tr></thead><tbody>
+<tr><td>Warp</td><td>Python/CUDA kernel 与自动微分框架</td><td>GPU arrays、kernel、Tape、graph capture</td></tr>
+<tr><td>Newton Physics</td><td>建立在 Warp 上的完整物理引擎</td><td>模型 API、资产导入、碰撞、solver、sensor、viewer</td></tr>
+<tr><td>MuJoCo Warp</td><td>MuJoCo 在 Warp/GPU 上的实现</td><td>作为 Newton 的一个重要 rigid/articulation solver backend</td></tr>
+</tbody></table>
+<p>本文的 Newton 指 Linux Foundation 项目 <code>newton-physics/newton</code>，不是旧的 Newton Game Dynamics。<code>warp.sim</code> 是它的前身，现已从 Warp 移除。另外，Genesis 的 <code>constraint_solver.Newton</code> 只是“牛顿迭代法”，与 Newton Physics 项目无关。</p>
+
+<h2>2. 从资产到一步 simulation</h2>
+<pre><code>Python primitives ─┐
+URDF / MJCF / USD ─┼─► ModelBuilder ─finalize─► Model
+                    │                            ├─► State A / State B
+                    │                            ├─► Control
+                    │                            └─► CollisionPipeline
+                    │                                      │
+                    └──────────────────────────────► Contacts
+                                                           │
+State A + Control + Contacts ──► selected Solver ──► State B</code></pre>
+<p><code>ModelBuilder</code> 汇总 body、joint、shape 和物理参数，<code>finalize()</code> 后变成适合设备执行的 SoA/Warp arrays。运行时的 <code>Model</code> 才是 standalone Newton 的 source of truth；USD 是重要 importer/schema 输入，却不像 Isaac Sim 那样持续充当 live scene graph。</p>
+<p>仿真通常在两个 state buffer 间交换，避免原地更新破坏数据依赖。sensor 再从 state、contacts、site 或 shape 计算观测。调用者获得了底层控制力，也必须自己遵守 buffer、同步和 model rebuild 生命周期。</p>
+
+<h2>3. 碰撞与 solver 为什么分开</h2>
+<p>Newton 的 <code>CollisionPipeline.collide(state, contacts)</code> 显式生成接触集合，<code>solver.step(...)</code> 再消费它。这样可以：</p>
+<ul><li>让多个 solver 复用 Newton 的 broad/narrow phase；</li><li>让 MuJoCo solver 选择原生 MuJoCo Warp contacts，或换成 Newton 的 SDF/hydroelastic contacts；</li><li>单独替换碰撞、过滤或接触格式，而不重写整个积分器；</li><li>把 collide + solver step 一起 capture 成 CUDA Graph，减少每步 launch 开销。</li></ul>
+
+<h2>4. Solver 是 Newton 最重要的扩展点</h2>
+<table><thead><tr><th>家族</th><th>表示/方法</th><th>适合先想到的任务</th></tr></thead><tbody>
+<tr><td>MuJoCo</td><td>广义坐标；MuJoCo/MJCF 语义；GPU MuJoCo Warp</td><td>高吞吐 articulated robot learning</td></tr>
+<tr><td>Featherstone</td><td>广义坐标；CRBA + semi-implicit</td><td>树形机器人、基础可微流程</td></tr>
+<tr><td>SemiImplicit / XPBD</td><td>最大坐标；显式约束/位置式求解</td><td>刚体、粒子、软体原型</td></tr>
+<tr><td>Kamino</td><td>最大坐标；硬接触、闭环与约束机构</td><td>复杂 constrained multibody；仍实验性</td></tr>
+<tr><td>VBD / Style3D</td><td>隐式 deformable/cloth 方法</td><td>布料、cable、软体；支持范围各异</td></tr>
+<tr><td>Implicit MPM</td><td>material point method</td><td>颗粒、弹塑性材料和 rigid-soft coupling</td></tr>
+</tbody></table>
+<p>“统一 API”不意味着 solver 行为统一。关节类型、摩擦字段、contact pipeline、坐标表示、可微分支持都不同；选 solver 必须对照 feature matrix，而不是只改一个字符串。跨 solver coupling 也仍是实验框架，不能理解成所有组合都已无缝双向耦合。</p>
+
+<h2>5. GPU 批处理的核心</h2>
+<p>Model/State/Control 本身就是 device arrays，<code>world</code> index 把独立环境放进同一 Model，相同 kernel 可按 world × entity 批量推进。v1.5 继续强化 multi-world reset、异构 robot batch、vectorized controller 与 graph capture。高吞吐来自：</p>
+<ul><li>让状态、控制和 contacts 常驻 GPU；</li><li>用 selection/view 按 label 找一批 articulation，而不是创建大量 Python object；</li><li>预分配有容量上限的 contacts/MPM grid，避免动态分配；</li><li>在固定执行图上做 CUDA Graph capture。</li></ul>
+<p>代价是生命周期更严格：model rebuild 后旧 view 失效；有些 solver 会交换 current/next state；直接写底层 array 时要自己维护 forward kinematics 与 cache invalidation。</p>
+
+<h2>6. 可微分不等于“所有接触都能反传”</h2>
+<p>Newton 用 <code>wp.Tape()</code> 记录 Warp kernel，随后从 scalar loss 反传到 state、control 或 model arrays。但当前 solver 支持并不一致：官方 matrix 只把 Featherstone 与 SemiImplicit 标为基础可微路径，MuJoCo、XPBD、VBD、Kamino、MPM 等不能笼统视为端到端可微。</p>
+<p>碰撞集合变化本身是离散的。Newton 的 rigid-contact gradient 会冻结 narrow phase，再对选定接触几何做可微重建；官方明确要求逐任务验证梯度。可微物理适合短 horizon control/parameter fitting，不会自动解决长 horizon 梯度爆炸、消失或 sim-to-real 偏差。</p>
+
+<h2>7. 与 Isaac Sim / Isaac Lab 怎样组合</h2>
+<ul><li><strong>Newton standalone</strong>：直接运行 physics + 轻量 viewer/export，适合 solver 开发和无 Kit 的训练。</li><li><strong>Isaac Lab + Newton</strong>：复用 task/env/robot-learning 接口，可 kit-less，也可接不同 visualizer/renderer。</li><li><strong>Isaac Sim + Newton backend</strong>：USD、Fabric、RTX、ROS 仍由 Isaac Sim 平台提供，Newton 负责物理；6.0.1 时仍属实验性路径。</li></ul>
+<p>因此“Isaac Sim vs Newton”并不总是二选一；Newton 可以成为 Isaac 生态中的 physics backend。</p>
+
+<div class="concept-callout"><strong>常见误解：</strong><p>Newton 的目标不是“用一个 solver 取代所有引擎”，而是用共同数据模型和 Warp 执行层容纳不同 solver。数值行为是否适合任务，仍由选中的 solver、contact pipeline 和参数共同决定。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. Model 与 State 为什么要分开？</summary><p>Model 保存相对静态的结构和参数，可被大量环境共享；State 保存每个 world 每一步变化的动态量，便于批处理和双缓冲。</p></details>
+<details><summary>2. 为什么 SolverMuJoCo 可能有两套 contact 路径？</summary><p>它可使用 MuJoCo Warp 自带碰撞，也可关闭该路径并消费 Newton CollisionPipeline 生成的 SDF/hydroelastic contacts。</p></details>
+<details><summary>3. “Newton 可微”为什么不能推出“任何机器人 rollout 都能可靠求梯度”？</summary><p>solver 支持有限，接触集合离散且部分梯度为近似；长 horizon 还有数值稳定与内存问题。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://newton-physics.github.io/newton/latest/guide/overview.html">Newton Overview</a> 定义核心对象与循环；<a href="https://newton-physics.github.io/newton/latest/solvers/index.html">Solvers Guide</a> 给出 feature/differentiability matrix；<a href="https://newton-physics.github.io/newton/latest/concepts/collisions.html">Collisions</a> 解释碰撞与 solver 集成；<a href="https://github.com/newton-physics/newton/releases/tag/v1.5.1">Newton v1.5.1</a> 是本文快照版本；<a href="https://isaac-sim.github.io/IsaacLab/develop/source/overview/core-concepts/physical-backends/newton/supported-features.html">Isaac Lab Newton Support</a> 记录当前集成边界。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-simulators/02-isaac-sim-core/">← 上一篇：Isaac Sim</a><a href="/notes/robot-simulators/04-genesis-core/">下一篇：Genesis World →</a></nav>
+</div></article>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="统一比较 Isaac Sim、Newton 与 Genesis World，并设计可复现的选型、sim-to-sim 和 sim-to-real 工作流。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxN4MZcFRfE6A+ZbZ9X+9yR6f0x5Kp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | 仿真器比较、选型与工作流</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 05 · 初稿待学习</span><p class="eyebrow">从功能表回到可证伪实验</p><h1>怎样比较、选型与做 sim-to-sim</h1><p class="learning-header__lead">选仿真系统不是寻找一个全局冠军，而是决定哪些层必须成熟、哪些可以替换、哪些误差会主导你的任务。真正公平的比较，要把资产、执行器、时钟、观测和成功指标全部固定。</p></header>
+<div class="post-content learning-article">
+<div class="key-takeaway"><h3>先记住一句话</h3><p><strong>先按层级拆系统，再按任务验证：Isaac Sim 强在完整数字孪生与感知栈，Newton 强在可插拔 GPU 物理和 robot-learning backend，Genesis World 强在独立 Pythonic 多物理平台。</strong></p></div>
+
+<h2>1. 统一比较表</h2>
+<table><thead><tr><th>维度</th><th>Isaac Sim 6.0.1</th><th>Newton 1.5.1</th><th>Genesis World 1.3.3</th></tr></thead><tbody>
+<tr><td>产品层级</td><td>完整仿真/数字孪生平台</td><td>物理引擎，可独立或嵌入</td><td>完整独立仿真平台</td></tr>
+<tr><td>场景核心</td><td>OpenUSD stage + schemas</td><td>ModelBuilder → Model arrays</td><td>Scene → Simulator → entities</td></tr>
+<tr><td>物理核心</td><td>默认 PhysX；实验性 Newton</td><td>MuJoCo、Featherstone、XPBD、VBD、Kamino、MPM 等可插拔 solver</td><td>Rigid、MPM、FEM、PBD、SPH、Stable Fluid + coupler</td></tr>
+<tr><td>运行时数据</td><td>Fabric + Physics Tensors</td><td>Warp Model/State/Control/Contacts arrays</td><td>per-solver state + batched tensor API</td></tr>
+<tr><td>渲染/传感器</td><td>RTX、多类工业传感器、Replicator</td><td>轻量 viewer/export；常与 Isaac Lab/Sim 组合</td><td>Rasterizer、BatchRenderer、Nyx、物理 sensors</td></tr>
+<tr><td>机器人学习</td><td>通过 Isaac Lab 的完整 env/task 生态</td><td>高吞吐、multi-world、kit-less；可接 Isaac Lab</td><td><code>scene.build(n_envs)</code>、训练示例与 PyTorch 集成</td></tr>
+<tr><td>可微分</td><td>取决于 physics backend/feature；PhysX 主路径不以端到端 diff 为核心</td><td>Warp autodiff；仅部分 solver/contact 路径支持</td><td>scene-level autodiff；solver/contact 支持需逐项确认</td></tr>
+<tr><td>硬件重心</td><td>NVIDIA CUDA/RTX，尤其感知栈</td><td>GPU 高性能路径以 NVIDIA Warp/CUDA 为主</td><td>Quadrants 面向 CUDA、ROCm、Metal、Vulkan 与 CPU</td></tr>
+<tr><td>当前成熟度</td><td>PhysX/RTX/USD 栈成熟；Newton backend 实验性</td><td>快速迭代，多 solver feature matrix 不统一</td><td>快速迭代，多物理广但组合成熟度不同</td></tr>
+</tbody></table>
+
+<h2>2. 它们实际可以怎样组合</h2>
+<pre><code>A. Isaac Sim + PhysX
+   USD / Kit / RTX / ROS / Replicator + mature default physics
+
+B. Isaac Sim + Newton
+   同一平台数据与渲染路径 + experimental Newton physics backend
+
+C. Isaac Lab + Newton, kit-less
+   task / env / RL abstractions + standalone GPU physics / lightweight rendering
+
+D. Isaac Lab + Isaac Sim / PhysX
+   经典高保真 robot-learning stack
+
+E. Genesis World
+   独立 scene + multiphysics + render + compiler stack</code></pre>
+<p>Newton 与 Isaac Sim 既能比较也能组合；Genesis 当前更像另一套端到端平台。选型前先画清楚你要替换的是 physics、renderer、task framework，还是整个 runtime。</p>
+
+<h2>3. 按任务做第一轮选择</h2>
+<div class="compare-grid">
+<div class="compare-card"><h3>工业数字孪生 / ROS / 多 RTX sensor</h3><p>优先 Isaac Sim。USD 资产、传感器校准、ROS 2 与 Replicator 的集成价值通常超过纯 physics FPS。</p></div>
+<div class="compare-card"><h3>大规模 state-based robot RL</h3><p>比较 Isaac Lab + Newton kit-less、Isaac Lab + PhysX 与 Genesis batch。重点测 steps/s、reset、contact fidelity 和任务复现成本。</p></div>
+<div class="compare-card"><h3>刚体 + 布料/颗粒/流体操作</h3><p>优先评估 Genesis 的 solver/coupler，或 Newton 的 VBD/MPM coupled path；必须针对具体材料与接触做验证。</p></div>
+<div class="compare-card"><h3>可微 control / 参数辨识</h3><p>先从 Newton/Genesis 已支持的 solver 与短 horizon 案例开始；用 finite difference 检梯度，再决定是否扩展。</p></div>
+</div>
+
+<h2>4. 公平 sim-to-sim 的对齐清单</h2>
+<table><thead><tr><th>必须固定</th><th>容易被忽略的差异</th><th>验证方法</th></tr></thead><tbody>
+<tr><td>单位与坐标系</td><td>米/厘米、Z-up/Y-up、四元数顺序</td><td>静态 pose 与 FK golden test</td></tr>
+<tr><td>robot topology</td><td>joint order、mimic、armature、fixed-joint merge</td><td>逐 joint impulse/position test</td></tr>
+<tr><td>质量与惯量</td><td>importer 重算 inertia、COM frame</td><td>free-fall、pendulum、energy test</td></tr>
+<tr><td>碰撞几何</td><td>visual mesh、convex decomposition、SDF、contact offset</td><td>drop、stack、sliding、grasp test</td></tr>
+<tr><td>执行器</td><td>PD 方程、gain 单位、limit、delay、motor model</td><td>single-joint step response</td></tr>
+<tr><td>时间</td><td>physics dt、substeps、control decimation、sensor phase</td><td>记录每个时钟和 committed action</td></tr>
+<tr><td>reset/randomization</td><td>seed、buffer swap、warm start、hidden solver state</td><td>state hash 与重复 rollout</td></tr>
+<tr><td>observation/action</td><td>frame、normalization、latency、ordering</td><td>逐 tensor schema assertion</td></tr>
+</tbody></table>
+
+<h2>5. 不要一上来比较整套 humanoid</h2>
+<p>先建立由小到大的 physics conformance suite：</p>
+<ol><li>单刚体自由落体：重力、积分与单位。</li><li>单摆/双摆：关节、惯量、阻尼和能量漂移。</li><li>方块滑动与斜坡：静/动摩擦与 contact transition。</li><li>堆叠：solver convergence、穿透、jitter 与 buffer。</li><li>单关节 PD：执行器和 control decimation。</li><li>脚落地/夹爪抓取：多点接触、摩擦锥与 impact。</li><li>最后才是整机 policy 的 sim-to-sim 与 sim-to-real。</li></ol>
+<p>每项同时报告轨迹误差、约束误差、接触统计、wall-clock throughput、显存和失败率。只有 FPS 没有物理误差，就不知道加速换掉了什么。</p>
+
+<h2>6. 一个可执行的 benchmark 协议</h2>
+<pre><code>for backend in [isaac_physx, isaac_newton, genesis]:
+    load_same_canonical_asset()
+    assert_units_frames_joint_order()
+    apply_same_initial_state_and_control_sequence()
+    log(q, qd, body_pose, contacts, sensor_time, step_time)
+    run_fixed_seeds(N)
+
+compare:
+  trajectory RMSE / contact onset / penetration / energy drift
+  task success / robustness under parameter sweep
+  physics steps per second / GPU memory / reset latency
+  engineering cost and unsupported-feature count</code></pre>
+<p>若 importer 无法产生等价模型，应把“资产转换误差”单列，而不是把它混进 solver 误差。若某 backend 不支持所需 feature，也应记录为产品约束，而不是通过删除 feature 获得漂亮 benchmark。</p>
+
+<h2>7. 从 sim-to-sim 走向 sim-to-real</h2>
+<ul><li>用 system identification 校准 mass、friction、motor、latency，而非只做宽泛 randomization。</li><li>对不可辨识参数做有物理意义的 distribution，验证 policy 对每一类变化的敏感度。</li><li>把相机 exposure、rolling shutter、深度空洞、通信 jitter 与 safety controller 纳入闭环。</li><li>保留多个 backend 作为 model disagreement signal：策略只在一个 solver 成功时要提高警惕。</li><li>最终证据仍是真机受控 rollout；sim-to-sim 一致只说明数值模型彼此接近。</li></ul>
+
+<div class="concept-callout"><strong>最终判断标准：</strong><p>最好的仿真栈，是在你的关键现象上有足够可信度，同时能以可接受的速度、资产成本和调试成本产生可复现实验的那一套，而不是功能最多或某个 demo FPS 最高的那一套。</p></div>
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. 为什么 Isaac Sim 和 Newton 不是严格二选一？</summary><p>Newton 可以作为 Isaac Sim/Isaac Lab 的 physics backend；Isaac Sim 其余 USD、Fabric、RTX、ROS 等平台层仍可保留。</p></details>
+<details><summary>2. 为什么同一 URDF 不保证两个 backend 中模型相同？</summary><p>importer 可能对 joint、inertia、collision mesh、mimic、drive 和 fixed link 做不同转换。</p></details>
+<details><summary>3. 一个 policy 在三个 simulator 都成功，是否证明能上真机？</summary><p>不能。三者可能共享同类错误假设；真实 actuator、contact、sensor、latency 和环境分布仍需真机验证。</p></details>
+</section>
+<div class="source-list"><h3>一手资料</h3><p><a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/physics/index.html">Isaac Sim Physics</a>、<a href="https://newton-physics.github.io/newton/latest/faq.html">Newton FAQ</a> 与 <a href="https://github.com/Genesis-Embodied-AI/genesis-world">Genesis World</a> 定义各自层级；<a href="https://isaac-sim.github.io/IsaacLab/develop/source/overview/core-concepts/physical-backends/newton/supported-features.html">Isaac Lab Supported Features</a> 展示当前 multi-backend 边界；所有版本与能力判断以 2026-08-29 官方资料快照为准。</p></div>
+<nav class="article-series-nav"><a href="/notes/robot-simulators/04-genesis-core/">← 上一篇：Genesis World</a><a href="/notes/robot-simulators/">回到系列目录 →</a></nav>
+</div></article>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>
