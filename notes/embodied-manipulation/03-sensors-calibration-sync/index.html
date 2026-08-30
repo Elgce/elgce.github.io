@@ -1,0 +1,21 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="具身操作数据中的传感器、相机标定、坐标变换、时间同步与延迟。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><script>window.MathJax={tex:{inlineMath:[['$','$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script><title>Qingwei Ben | 传感器、标定与时间同步</title></head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/embodied-manipulation/">Series</a><a href="/notes/">All Posts</a></div></nav><article class="post-shell"><header class="post-header learning-header"><span class="draft-status">03 / 18 · 初稿待学习</span><p class="eyebrow">先保证模型看到的是同一个世界</p><h1>传感器、标定与时间同步</h1><p class="learning-header__lead">相机给你的是像素，控制器活在机器人坐标和真实时间里；标定与同步负责把两者变成同一个问题。</p></header>
+<div class="post-content learning-article"><div class="key-takeaway"><h3>先记住一句话</h3><p><strong>空间标定回答“这个像素在机器人哪里”，时间同步回答“这张图对应机器人何时”；两者任一错误，监督都会系统性偏移。</strong></p></div>
+<h2>1. 传感器各自补什么信息</h2><table><thead><tr><th>模态</th><th>强项</th><th>典型盲区</th></tr></thead><tbody><tr><td>第三视角 RGB</td><td>全局场景、目标与障碍</td><td>手部接触细节小、遮挡</td></tr><tr><td>腕部 RGB</td><td>近距离几何、抓取接触</td><td>运动剧烈、上下文窄</td></tr><tr><td>深度/点云</td><td>尺度和三维位置</td><td>反光、透明、孔洞与噪声</td></tr><tr><td>proprioception</td><td>身体构型、高频稳定</td><td>不知道对象状态</td></tr><tr><td>力/触觉</td><td>接触、滑移、插入</td><td>校零、漂移、跨硬件不一致</td></tr></tbody></table>
+<h2>2. 内参与外参</h2><p>相机内参把相机坐标中的三维点投到像素；外参是两个坐标系之间的刚体变换。常见链条是：</p><pre><code>pixel + depth → camera point
+camera point -- T_base_camera --> robot base point
+EEF point     -- T_world_base  --> world point</code></pre>
+<p>固定相机的外参相对 base 不变；腕部相机则随关节运动，通常需要 hand–eye calibration，并用当前正向运动学得到完整变换。矩阵方向必须写在命名里，例如 <code>T_base_camera</code> 表示把 camera 中坐标变到 base，不能只写 <code>extrinsics</code>。</p>
+<h2>3. 同步不是“找最近帧”就结束</h2><p>机器人流常来自不同 clocks。相机曝光、图像到达、state 采样、命令发出和实际执行各有时间戳。最近邻匹配仅在时钟已对齐、抖动足够小的前提下合理；高频 state 更常先按时间插值，再对齐到 policy tick。</p>
+<ul><li>位置可以线性插值；旋转应使用 SO(3)/quaternion 合理插值。</li><li>动作应按“命令生效区间”对齐，而不是只看消息到达时间。</li><li>记录 raw timestamp、统一 clock 后 timestamp 和估计 latency，便于事后重建。</li></ul>
+<h2>4. 延迟怎样进入数据</h2><pre><code>t0 相机曝光
+t1 图像完成传输
+t2 policy 开始 / 结束推理
+t3 命令到控制器
+t4 执行器真正响应
+</code></pre><p>若训练把 $I(t_0)$ 配给 $a(t_4)$，模型学的是包含人类/系统反应延迟的策略。部署延迟改变后，动作相位就会错。补偿方法包括按实测延迟重对齐、给模型历史窗口、预测未来目标，或在训练中随机化延迟。</p>
+<h2>5. 上模型前的可视化检查</h2><ol><li>在图像上投影 robot joints/EEF，检查外参和时间是否一致。</li><li>并排播放多视角与 state/action 曲线，快速运动时逐帧检查。</li><li>用已知 AprilTag/标定板估计重投影误差，但还要看工作空间中的实际误差。</li><li>断开模型，用记录动作 replay 或建立简单 copy/lag baseline 检查语义。</li></ol>
+<div class="concept-callout"><strong>经验法则：</strong><p>如果模型对静态任务很好、快速接触任务明显落后，先排查 latency、rolling shutter、腕相机模糊与动作频率，再扩模型。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 内参和外参分别回答什么？</summary><p>内参描述相机坐标到像素的投影；外参描述相机与机器人/世界坐标之间的刚体关系。</p></details><details><summary>2. 腕部相机为什么不能只存一个固定外参？</summary><p>它随末端运动，需要 hand–eye 标定加每时刻的机器人运动学。</p></details><details><summary>3. 为什么重投影误差小仍可能控制失败？</summary><p>标定可能只在标定板区域好，或时间错位、深度误差和控制延迟仍存在。</p></details></section>
+<div class="source-list"><h3>延伸资料</h3><p><a href="https://droid-dataset.github.io/">DROID</a> 的统一硬件、多视角与公开标定展示了规模化采集为何需要传感器协议。</p></div>
+<nav class="article-series-nav"><a href="/notes/embodied-manipulation/02-episode-data-model/">← 上一篇：Episode</a><a href="/notes/embodied-manipulation/04-action-space-coordinate-frames/">下一篇：动作与坐标系 →</a></nav></div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

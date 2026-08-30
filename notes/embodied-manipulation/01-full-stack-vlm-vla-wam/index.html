@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="理解具身操作中的 VLM、VLA、world model 与 WAM 的职责和边界。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | VLM、VLA 与 WAM</title></head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/embodied-manipulation/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">01 / 18 · 初稿待学习</span><p class="eyebrow">先画完整系统图</p><h1>VLM、VLA 与 WAM 到底是什么</h1><p class="learning-header__lead">三个名字不是按“新旧”排列，而是在回答三个不同问题：看懂了什么、下一步做什么、做了以后世界会怎样。</p></header>
+<div class="post-content learning-article"><div class="key-takeaway"><h3>先记住一句话</h3><p><strong>VLM 建立视觉—语言语义，VLA 把观测和指令直接映射成动作，WAM 再把动作与世界演化放进同一个学习问题；真正的机器人系统还必须经过实时控制与安全层。</strong></p></div>
+<h2>1. 从闭环，而不是模型名开始</h2>
+<pre><code>语言目标 g + 相机 I + 本体状态 s
+                 ↓
+        语义 / 空间表征 z
+                 ↓
+        预测 action chunk â
+                 ↓
+      控制器、限幅、IK / WBC
+                 ↓
+              机器人
+                 ↓
+          新观测 I', s' ──┐
+                           └── 回到开头</code></pre>
+<p>具身智能的关键不是一次答对，而是每执行一点动作就重新观察、重新估计并纠错。任何模型都只是这个反馈回路中的一个组件。</p>
+<h2>2. 四类模型分别学什么</h2>
+<table><thead><tr><th>类型</th><th>典型映射</th><th>擅长</th><th>缺口</th></tr></thead><tbody>
+<tr><td>VLM</td><td>图像 + 文字 → 文字/语义特征</td><td>对象、属性、关系、开放词汇</td><td>通常不输出可执行连续控制</td></tr>
+<tr><td>VLA / policy</td><td>观测 + 指令 → 动作</td><td>端到端闭环控制</td><td>可能靠相关性反应，未显式预测后果</td></tr>
+<tr><td>World model</td><td>状态/观测 + 动作 → 未来</td><td>学习动力学、预测与规划</td><td>会预测不等于会选动作</td></tr>
+<tr><td>WAM</td><td>观测 + 指令 ↔ 未来 + 动作</td><td>联合学习“会发生什么”和“该怎么做”</td><td>视频建模昂贵，接口设计仍在快速演化</td></tr>
+</tbody></table>
+<h2>3. VLA 不是“VLM 后面随便接一个头”</h2>
+<p>VLM 的语义先验很重要：它能识别“红色杯子”和理解“放进左边抽屉”。但 manipulation 还需要 VLM 预训练中很弱的信号：毫米级位置、可达性、遮挡、摩擦、接触时机和机器人自身状态。常见 VLA 因此由两部分组成：</p>
+<ul><li><strong>语义主干</strong>：继承互联网图文预训练，处理视觉和语言。</li><li><strong>动作专家</strong>：读取语义特征、本体状态与噪声动作，生成连续 action chunk。</li></ul>
+<p>RT-2 把动作离散成文本 token；OpenVLA 延续 token 化路线；π0 和 GR00T N1 则使用连续动作的 flow/diffusion 模块。它们都叫 VLA，但输出分布与实时特性很不同。</p>
+<h2>4. WAM 的三条主要路线</h2>
+<div class="compare-grid"><div class="compare-card"><h3>显式未来</h3><p>先或同时生成未来视频，再利用未来表征产生动作。可检查“模型想象了什么”，但成本高。</p></div><div class="compare-card"><h3>隐式未来</h3><p>用未来视觉 latent 作为训练目标，推理时不还原像素。便宜，但世界知识更难直接解释。</p></div><div class="compare-card"><h3>联合 token</h3><p>视频、状态、动作进入同一个 Transformer，通过 mask 决定信息流，可联合或拆分去噪。</p></div><div class="compare-card"><h3>规划式 world model</h3><p>预测多个候选动作后果，再用价值/目标选择。模型误差会在长 horizon 累积。</p></div></div>
+<p>一种典型 joint-WAM 会把条件视频、待预测未来、state 与 action 打包为联合序列，共享 Transformer；视频与动作可同时做生成式建模，也可用 attention mask 切断动作对未来生成 token 的依赖，从而在部署时选择更快的 action-only inference。</p>
+<h2>5. 判断一个模型时问这七个问题</h2>
+<ol><li>它看到几帧、几个视角、哪些本体状态？</li><li>语言是任务标签、自然语言，还是高层 subtask？</li><li>动作在哪个坐标系，绝对还是相对，频率多少？</li><li>输出单步还是 action chunk，分布如何建模？</li><li>未来预测是像素、latent，还是根本没有？</li><li>训练数据来自哪些本体，怎样混合和归一化？</li><li>最终证据是离线 loss、仿真 rollout，还是足量真实闭环试验？</li></ol>
+<div class="concept-callout"><strong>核心边界：</strong><p>语言推理强不等于操作强；视频预测漂亮不等于动作正确；action MSE 低也不等于闭环成功。三者需要分别验证。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. WAM 与普通 VLA 最本质的区别是什么？</summary><p>WAM 把世界如何随动作演化也纳入学习目标或推理过程，而普通 VLA 可以只学习观测到动作的直接映射。</p></details><details><summary>2. 为什么 VLM 不能直接等同于机器人策略？</summary><p>VLM 的输出和训练数据不保证具备连续控制、机器人状态、接触动力学、实时性与安全约束。</p></details><details><summary>3. 为什么隐式 future latent 也算 world modeling？</summary><p>模型被要求从当前条件预测未来观测的表征，即使不解码成像素，也必须编码对未来演化有用的信息。</p></details></section>
+<div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2307.15818">RT-2</a> 提出 VLA 命名并将动作表示为 token；<a href="https://arxiv.org/abs/2410.24164">π0</a> 使用 VLM + flow matching；<a href="https://arxiv.org/abs/2503.14734">GR00T N1</a> 展示双系统 VLA；<a href="https://arxiv.org/abs/2505.15659">FLARE</a> 展示隐式未来表征对齐。</p></div>
+<nav class="article-series-nav"><a href="/notes/embodied-manipulation/">← 系列目录</a><a href="/notes/embodied-manipulation/02-episode-data-model/">下一篇：Episode 数据模型 →</a></nav></div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

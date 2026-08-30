@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="从机器人 episode 数据到 VLM、VLA、WAM、训练、评测与闭环部署的具身操作学习笔记。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | 具身操作模型学习笔记</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+    <nav class="home-nav blog-topbar" aria-label="Blog navigation">
+        <a class="home-mark" href="/">Qingwei Ben</a>
+        <div class="home-nav__links"><a href="/notes/">All Posts</a><a href="/">Home</a></div>
+    </nav>
+    <header class="blog-hero learning-header">
+        <span class="draft-status">Learning series · first draft</span>
+        <p class="eyebrow">18 notes / data → model → robot</p>
+        <h1>具身操作模型</h1>
+        <p class="learning-header__lead">从一条机器人 episode 出发，逐层理解 VLM、VLA、World Action Model、动作生成、跨本体训练、闭环评测与真实部署。目标不是记模型名，而是能自己判断一个系统为什么工作、为什么失败。</p>
+        <div class="series-progress"><span><strong>18</strong> 篇独立文章</span><span><strong>4</strong> 条主线</span><span>状态：<strong>初稿待学习</strong></span></div>
+    </header>
+
+    <section class="series-grid" aria-label="Embodied manipulation learning series">
+        <p class="series-part-label">Part I · 先把数据世界建对</p>
+        <a class="series-card" href="/notes/embodied-manipulation/01-full-stack-vlm-vla-wam/"><div class="series-card__top"><span class="series-card__number">01</span><span>全局地图</span></div><h2>VLM、VLA 与 WAM 到底是什么</h2><p>从感知、语义、预测到控制，先看懂不同模型在闭环中的职责与边界。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/02-episode-data-model/"><div class="series-card__top"><span class="series-card__number">02</span><span>最小数据单元</span></div><h2>一条 Episode 的数据模型</h2><p>图像、状态、动作、语言、时间戳和 episode 边界怎样共同定义监督样本。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/03-sensors-calibration-sync/"><div class="series-card__top"><span class="series-card__number">03</span><span>观测可信度</span></div><h2>传感器、标定与时间同步</h2><p>多相机、内外参、控制延迟和时间对齐为何经常比模型大小更决定上限。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/04-action-space-coordinate-frames/"><div class="series-card__top"><span class="series-card__number">04</span><span>控制语义</span></div><h2>动作空间与坐标系</h2><p>关节/末端、绝对/相对、世界/基座/工具坐标，以及旋转表示和归一化。</p></a>
+
+        <p class="series-part-label">Part II · 数据从哪里来，怎样变成训练信号</p>
+        <a class="series-card" href="/notes/embodied-manipulation/05-data-collection/"><div class="series-card__top"><span class="series-card__number">05</span><span>采集</span></div><h2>遥操作、仿真、人类视频与自主数据</h2><p>不同数据源提供什么监督，带来什么偏差，为什么“更多”不等于“更好”。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/06-data-quality-mixtures/"><div class="series-card__top"><span class="series-card__number">06</span><span>数据工程</span></div><h2>清洗、切窗、混合与采样</h2><p>从原始 episode 到 batch：质量门槛、delta indices、mask、统计量和配比。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/07-vlm-grounding-spatial/"><div class="series-card__top"><span class="series-card__number">07</span><span>语义地基</span></div><h2>VLM、Grounding 与空间理解</h2><p>VLM 带来开放词汇语义，却为什么不会自动获得几何、接触和可执行性。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/08-vla-architectures/"><div class="series-card__top"><span class="series-card__number">08</span><span>策略模型</span></div><h2>VLA 的架构家族</h2><p>动作 token、连续 action expert、双系统架构和端到端联合训练的取舍。</p></a>
+
+        <p class="series-part-label">Part III · 怎样生成动作并学习世界</p>
+        <a class="series-card" href="/notes/embodied-manipulation/09-wam-world-action-models/"><div class="series-card__top"><span class="series-card__number">09</span><span>世界—动作联合</span></div><h2>WAM 与未来预测</h2><p>显式视频想象、未来 latent 对齐、联合 token 建模，以及训练收益与推理成本。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/10-action-generation/"><div class="series-card__top"><span class="series-card__number">10</span><span>生成头</span></div><h2>回归、自回归、Diffusion 与 Flow Matching</h2><p>多峰动作分布怎样表达，action chunk 为什么有效，采样步数又如何影响延迟。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/11-cross-embodiment/"><div class="series-card__top"><span class="series-card__number">11</span><span>泛化</span></div><h2>跨本体与统一动作接口</h2><p>不同机器人维度、动力学和相机怎样共训，哪些知识能迁移，哪些必须隔离。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/12-training-curriculum/"><div class="series-card__top"><span class="series-card__number">12</span><span>训练路径</span></div><h2>预训练、共训与后训练</h2><p>视频预训练、动作监督、目标域微调如何分阶段组织，并避免灾难性遗忘。</p></a>
+
+        <p class="series-part-label">Part IV · 后训练、实时执行与真实闭环</p>
+        <a class="series-card" href="/notes/embodied-manipulation/13-policy-post-training/"><div class="series-card__top"><span class="series-card__number">13</span><span>策略后训练</span></div><h2>从 SFT 到纠错、价值与 RL</h2><p>用 rollout、成功信号、人类介入和偏好继续改进预训练策略，而不丢掉通用能力。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/14-real-time-policy-techniques/"><div class="series-card__top"><span class="series-card__number">14</span><span>时序后训练</span></div><h2>RTC 一类的实时策略技巧</h2><p>异步 chunk、prefix conditioning、temporal ensemble、延迟模拟与快速 flow policy。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/15-memory-3d-contact/"><div class="series-card__top"><span class="series-card__number">15</span><span>物理状态</span></div><h2>历史、三维与接触</h2><p>遮挡、深度、多视角、力觉与记忆如何补足单帧 RGB 的部分可观测性。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/16-evaluation/"><div class="series-card__top"><span class="series-card__number">16</span><span>证据</span></div><h2>离线指标与闭环评测</h2><p>为什么低 action loss 不等于高成功率，以及怎样设计可复现的 OOD 试验。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/17-deployment-control-safety/"><div class="series-card__top"><span class="series-card__number">17</span><span>部署</span></div><h2>闭环控制、系统延迟与安全</h2><p>从 policy server 到机器人控制器，怎样管理时钟、故障、限幅与紧急停止。</p></a>
+        <a class="series-card" href="/notes/embodied-manipulation/18-data-flywheel-research/"><div class="series-card__top"><span class="series-card__number">18</span><span>研究方法</span></div><h2>失败诊断、数据飞轮与研究路线</h2><p>把失败还原到数据—表示—策略—控制链路，并设计真正能回答问题的实验。</p></a>
+    </section>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body>
+</html>

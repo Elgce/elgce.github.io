@@ -1,0 +1,32 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="机器人 manipulation episode 的观测、状态、动作、语言和时间结构。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><script>window.MathJax={tex:{inlineMath:[['$','$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script><title>Qingwei Ben | 一条 Episode 的数据模型</title></head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/embodied-manipulation/">Series</a><a href="/notes/">All Posts</a></div></nav><article class="post-shell"><header class="post-header learning-header"><span class="draft-status">02 / 18 · 初稿待学习</span><p class="eyebrow">数据是时序，不是一堆帧</p><h1>一条 Episode 的数据模型</h1><p class="learning-header__lead">先能精确说清“第 t 行代表什么”，再谈网络怎样读取它；很多训练 bug 本质上是时间语义错了一格。</p></header>
+<div class="post-content learning-article"><div class="key-takeaway"><h3>先记住一句话</h3><p><strong>Episode 是一次有边界的交互轨迹；每一步必须把“何时观察到什么、何时发出什么命令、命令作用多久”写清楚，训练窗口只是从中切出的一个条件—目标片段。</strong></p></div>
+<h2>1. 最小形式</h2><pre><code>episode = {
+  task / language,
+  metadata: robot, scene, cameras, success, ...,
+  steps[t]: {
+    timestamp,
+    observation.images[view],
+    observation.state,
+    action,
+    reward / done / validity
+  }
+}</code></pre>
+<p>数学上可写成轨迹 $\tau=(g,o_0,a_0,o_1,a_1,\ldots,o_T)$。关键语义是：$a_t$ 通常由 $o_t$ 决策，并在之后的时间区间作用，导致 $o_{t+1}$。如果记录器把动作和执行后的图像放在同一索引，模型就会学到偷看结果的错位监督。</p>
+<h2>2. Observation、state 与 action 不要混叫</h2>
+<table><thead><tr><th>字段</th><th>例子</th><th>问题</th></tr></thead><tbody><tr><td>外感观测</td><td>第三视角、腕部 RGB、深度、触觉</td><td>世界现在看起来怎样？</td></tr><tr><td>本体状态</td><td>关节角/速度、EEF pose、夹爪、力矩</td><td>机器人身体现在怎样？</td></tr><tr><td>动作</td><td>目标关节、EEF delta、速度、夹爪命令</td><td>控制器接下来要执行什么？</td></tr><tr><td>任务条件</td><td>语言、目标图、task ID</td><td>应该达到什么结果？</td></tr></tbody></table>
+<p>同一个数值有时既出现在 state 又出现在 action，例如当前关节角与下一时刻目标关节角；字段名相似不代表语义相同。</p>
+<h2>3. 一条轨迹怎样变成训练样本</h2>
+<pre><code>历史观测索引:  t-2, t-1, t
+动作目标索引:  t, t+1, ... t+H-1
+未来视频索引:  t+k1, t+k2, ...
+
+sample = condition(history, task, state_t) → target(action_chunk, future)</code></pre>
+<p><code>delta_indices</code> 或 <code>delta_timestamps</code> 定义的不是文件位置技巧，而是模型能看多远、要预测多远。负 offset 是历史，零是当前，正 offset 是未来。跨越 episode 末尾时必须 padding 并提供 mask，不能悄悄读入下一条轨迹。</p>
+<h2>4. 三种频率要分开</h2><ul><li><strong>传感器频率</strong>：相机可能 30 Hz，关节状态可能 100–1000 Hz。</li><li><strong>记录/训练频率</strong>：常重采样到 5–30 Hz。</li><li><strong>控制执行频率</strong>：高层 policy 可能 5–20 Hz，底层 controller 更高。</li></ul>
+<p>“40 步 action horizon”没有时间含义，除非同时知道采样周期。例如 8 Hz 时是约 5 秒，20 Hz 时只有 2 秒。</p>
+<h2>5. Episode metadata 决定能否做科学实验</h2><p>至少保留 robot/embodiment、任务、场景、对象实例、采集者、时间、软件版本、标定版本、成功/失败、终止原因和 train/eval split 单元。否则你很难回答性能提升来自新对象泛化，还是同一场景泄漏。</p>
+<div class="concept-callout"><strong>最危险的 silent bug：</strong><p>图像、state 和 action 形状都对，loss 也下降，但时间戳错位 100–300 ms。模型学到的是操作者延迟或未来泄漏，闭环时才暴露。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 为什么不能随机按帧切 train/test？</summary><p>相邻帧高度相关，同一 episode、场景和对象会泄漏到两边，使泛化指标虚高。</p></details><details><summary>2. action horizon 的物理意义由什么决定？</summary><p>步数与动作采样周期共同决定持续时间。</p></details><details><summary>3. episode 末尾 padding 为什么需要 mask？</summary><p>否则伪造的零动作/重复帧会进入 loss，模型会把填充值当作真实行为。</p></details></section>
+<div class="source-list"><h3>原始资料</h3><p><a href="https://droid-dataset.github.io/">DROID</a> 展示多相机、状态、动作和语言的 episode；<a href="https://huggingface.co/docs/lerobot/lerobot-dataset-v3">LeRobotDataset v3</a> 给出 episode-aware 的多模态时序存储方案。</p></div>
+<nav class="article-series-nav"><a href="/notes/embodied-manipulation/01-full-stack-vlm-vla-wam/">← 上一篇：全局地图</a><a href="/notes/embodied-manipulation/03-sensors-calibration-sync/">下一篇：标定与同步 →</a></nav></div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>

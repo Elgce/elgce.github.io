@@ -1,0 +1,24 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="机器人 episode 的清洗、切窗、归一化、数据混合、采样与增强。"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css"><title>Qingwei Ben | 清洗、切窗、混合与采样</title></head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell"><nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/embodied-manipulation/">Series</a><a href="/notes/">All Posts</a></div></nav><article class="post-shell"><header class="post-header learning-header"><span class="draft-status">06 / 18 · 初稿待学习</span><p class="eyebrow">原始日志不是训练集</p><h1>清洗、切窗、混合与采样</h1><p class="learning-header__lead">把 episode 变成 batch 的每个决定都在改变训练分布：采哪些时刻、怎样对齐、哪些维度算 loss、不同来源出现多少次。</p></header>
+<div class="post-content learning-article"><div class="key-takeaway"><h3>先记住一句话</h3><p><strong>数据 pipeline 是模型定义的一部分：同一批 episode 经过不同切窗、采样、归一化和 mixture weight，会训练出不同 policy。</strong></p></div>
+<h2>1. 一个可靠 pipeline 的顺序</h2><pre><code>raw logs
+  → schema validation
+  → timestamp alignment / resampling
+  → calibration & action conversion
+  → episode quality filters
+  → split by scene/object/session
+  → statistics on train split only
+  → temporal window sampling
+  → augmentation / padding / masks
+  → batch</code></pre>
+<p>顺序很重要。先全数据算 normalization stats 再切 split，会把 eval 分布信息泄漏进训练；先压成低帧率再检查 drop，又可能掩盖原始采集问题。</p>
+<h2>2. 清洗不只是删失败</h2><ul><li><strong>结构检查</strong>：长度一致、timestamp 单调、必需字段存在、图像能解码。</li><li><strong>物理检查</strong>：关节/EEF 在合理范围、速度跳变、夹爪命令合法。</li><li><strong>时序检查</strong>：帧率、drop、重复帧、action lag、跨 episode 污染。</li><li><strong>语义检查</strong>：指令与视频一致、成功标签可信、任务阶段合理。</li></ul><p>硬过滤应可追溯：保留 reject reason 和 pipeline version。失败数据是否保留取决于训练目标，而不是统一删掉。</p>
+<h2>3. 切窗决定模型的时间感受野</h2><p>设当前索引为 t，可以读取历史图像 <code>[-4, -2, 0]</code>，监督动作 <code>[0…39]</code>，监督未来帧 <code>[8, 16]</code>。这三个选择分别定义历史记忆、action horizon 和 world prediction horizon。</p><p>均匀抽 frame 适合缓慢阶段，却会低估短暂接触事件。可对夹爪切换、接触、任务 phase 边界做 event-aware sampling，但必须修正采样权重，避免 policy 误判事件先验。</p>
+<h2>4. Mixture 的单位是什么</h2><p>按 frame 均匀会让长 episode/高帧率数据统治训练；按 episode 均匀会过采短轨迹；按 dataset 均匀又会过采很小的数据源。更明确的层级是：</p><pre><code>P(sample) = P(dataset) · P(task | dataset)
+          · P(episode | task) · P(window | episode)</code></pre><p>每一层都应有可见配置和统计 dashboard。常见策略是给高质量目标域固定最低占比，再对大规模预训练源 temperature sampling。</p>
+<h2>5. 归一化、增强与 mask</h2><ul><li>state/action 按 embodiment 和维度统计 quantile/mean/std，记录单位与反归一化方式。</li><li>图像 color jitter、crop 可提高视觉鲁棒性，但不能破坏精确空间关系或让不同视角不一致。</li><li>language paraphrase 能增广表达，必须保持对象指代和左右关系。</li><li>camera、action dimension、episode end、无 action 数据都需要独立 mask；一个 <code>valid</code> 位通常不够。</li></ul>
+<h2>6. DataLoader 也要验收</h2><p>随机抽 100 个最终 batch，反归一化并做成视频：把输入历史、目标未来、EEF 轨迹、夹爪和文本一起画出来。只看原始数据或 tensor shape 无法发现切窗后的语义错误。</p>
+<div class="concept-callout"><strong>最小可复现记录：</strong><p>dataset revision、filter version、split manifest、stats 文件、mixture weights、sampler seed 和所有 temporal offsets，缺一项都可能让实验无法解释。</p></div>
+<section class="learning-check"><h3>自测</h3><details><summary>1. 为什么不能默认按 frame 均匀采样？</summary><p>它隐式偏向更长、更高频的轨迹，不一定符合希望的任务或数据源权重。</p></details><details><summary>2. stats 为什么只在 train split 计算？</summary><p>避免把测试分布信息泄漏进训练变换。</p></details><details><summary>3. event-aware sampling 的副作用是什么？</summary><p>改变事件出现先验，若不加权可能让模型过早或过频触发抓取等动作。</p></details></section>
+<div class="source-list"><h3>实践资料</h3><p><a href="https://huggingface.co/docs/lerobot/lerobot-dataset-v3">LeRobotDataset v3</a> 把视频、Parquet、episode metadata 和统计量组织成可扩展格式；<a href="https://droid-dataset.github.io/droid/the-droid-dataset">DROID schema</a> 是理解训练前字段的具体例子。</p></div>
+<nav class="article-series-nav"><a href="/notes/embodied-manipulation/05-data-collection/">← 上一篇：数据来源</a><a href="/notes/embodied-manipulation/07-vlm-grounding-spatial/">下一篇：VLM 与 Grounding →</a></nav></div></article></main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer></body></html>
