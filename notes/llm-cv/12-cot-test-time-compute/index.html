@@ -10,9 +10,11 @@
 </head>
 <body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
     <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
-    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">12 / 14 · 初稿待学习</span><p class="eyebrow">推理时扩展</p><h1>Chain-of-Thought 与 Test-time Compute</h1><p class="learning-header__lead">模型参数冻结后，仍可以用更多生成 token、更多候选、搜索、验证器或工具增加解题计算；这些方法的收益和含义并不相同。</p></header>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">12 / 14 · 第一轮精讲</span><p class="eyebrow">推理时扩展</p><h1>Chain-of-Thought 与 Test-time Compute</h1><p class="learning-header__lead">模型参数冻结后，仍可以用更多生成 token、更多候选、搜索、验证器或工具增加解题计算；这些方法的收益和含义并不相同。</p></header>
     <div class="post-content learning-article">
         <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>CoT 给模型一个串行“草稿纸”；self-consistency 用多个推理样本投票；verifier-guided search 用额外计算挑选或扩展更有希望的路径。Test-time compute 是这些预算的总称。</strong></p></div>
+        <div class="learning-route"><span>问题</span><b>→</b><span>分配 token / sample 预算</span><b>→</b><span>生成路径</span><b>→</b><span>投票 / verifier / tool</span><b>→</b><span>选择答案</span><b>→</b><span>按收益停止</span></div>
+        <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>纵向 compute</small><strong>一条路径写更多步骤</strong></div><span class="process-arrow">+</span><div class="process-step"><small>横向 compute</small><strong>并行采样 N 条路径</strong></div><span class="process-arrow">+</span><div class="process-step"><small>选择 compute</small><strong>vote / verifier / search</strong></div><span class="process-arrow">→</span><div class="process-step"><small>输出</small><strong>答案 + 置信与成本</strong></div></div><figcaption>增加预算只有在新路径有多样性、选择器有辨别力时才有效。</figcaption></figure>
 
         <h2>1. 为什么中间 token 可能帮助计算？</h2>
         <p>标准 decoder 每生成一个 token，就多执行一次完整网络前向，并把新 hidden state 写入上下文。若要求直接输出复杂问题的最终答案，模型只能把所有中间变换压在有限层深里；允许生成中间步骤，相当于把计算展开到时间维。</p>
@@ -23,6 +25,7 @@ question → intermediate step 1
          → check / revise
          → answer</code></pre>
         <p>Chain-of-Thought prompting 通过示例或指令诱导这种中间文本。它尤其帮助多步算术、符号推理和组合任务，但简单事实题可能只增加延迟和错误机会。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 1：串行 token 就是额外 forward</p><p>直接答案 8 tokens；CoT 先写 192 tokens 再答 8 tokens，共 200 个 decoding steps，是原来的 25 倍 step 数。若稳定阶段每 token 20 ms，纯解码时间约从 0.16 s 增至 4 s。KV cache 避免重算历史 K/V，但不能消除新 token 的串行依赖。</p></div>
 
         <h2>2. CoT 是推理过程的真实解释吗？</h2>
         <p>不一定。可见 rationale 是模型生成的文本，可能确实参与后续 token 条件，也可能事后合理化、遗漏内部线索或受 prompt 风格影响。判断 faithfulness 需要干预中间步骤、检查答案是否相应变化，而不能只看文字是否流畅。</p>
@@ -37,6 +40,7 @@ path D → 37
 path E → 42
 majority → 42</code></pre>
         <p>它增加的是“横向”计算：并行尝试多个路径；更长单条 CoT 是“纵向”计算。若模型对同一种错误高度自信，多数投票也会稳定地选错。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 2：3 路多数投票的理想化收益</p><p>假设每条路径独立且正确率 $p=0.7$，3 路至少 2 条正确的概率：</p><div class="equation">$$\binom32(0.7)^2(0.3)+(0.7)^3=3(0.147)+0.343=0.784$$</div><p>从 0.70 提升到 0.784。若错误高度相关，独立假设失效，实际收益会更小。</p></div>
 
         <h2>4. Pass@k、majority vote 和 verifier selection</h2>
         <table><thead><tr><th>方法</th><th>需要什么</th><th>回答的问题</th></tr></thead><tbody>
@@ -45,6 +49,7 @@ majority → 42</code></pre>
             <tr><td>verifier/reranker</td><td>能给候选打质量分</td><td>哪个候选最值得选</td></tr>
         </tbody></table>
         <p>Pass@k 是能力上界式指标，不代表系统知道哪个候选正确；真正部署需要 verifier、执行测试或一致性规则完成选择。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 3：独立近似下的 pass@k</p><p>单样本成功率 $p=0.2$，$k=5$：</p><div class="equation">$$\mathrm{pass@5}=1-(1-p)^5=1-0.8^5=0.67232$$</div><p>候选集中约 67.2% 有正确答案，但若随机返回一条，准确率仍只有 20%。</p></div>
 
         <h2>5. Search 怎样使用更多预算？</h2>
         <p>问题求解可以看作 partial reasoning states 的树。Beam search、best-of-N、Monte Carlo Tree Search 或 learned process verifier 可以扩展、评分和剪枝路径：</p>
@@ -53,6 +58,7 @@ majority → 42</code></pre>
  ├─ candidate step B → low score → prune
  └─ candidate step C → score → expand</code></pre>
         <p>搜索质量取决于 proposal model 能否产生多样好步骤，以及 verifier 能否在答案完成前判断 partial state。错误 verifier 会让更多计算更快地走向错误方向。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 4：beam search 的节点数</p><p>每个 state 提议 4 个后续步骤，保留 beam width 2，搜索深度 3。每层分别评分 $4$、$2\times4=8$、$2\times4=8$ 个新节点，共 20 个；不剪枝的完整 4 叉树前三层需 $4+16+64=84$ 个。剪枝省 compute，但早期误剪无法恢复。</p></div>
 
         <h2>6. Test-time compute 包含哪些旋钮？</h2>
         <ul>
@@ -63,16 +69,19 @@ majority → 42</code></pre>
             <li><strong>外部工具</strong>：运行代码、搜索资料、调用计算器或环境。</li>
         </ul>
         <p>它们都增加推理时成本，但 scaling curve 不同。理想系统会按问题难度自适应预算，而不是每个请求都生成最长轨迹。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 5：算边际收益，而不只看准确率</p><p>策略 A 用 500 tokens 得 70% accuracy；策略 B 用 2,000 tokens 得 78%。每题多 1,500 tokens 换 8 个百分点，边际是每 1,000 tokens 约 5.33 个百分点。是否值得取决于错误代价、延迟与 token 单价。</p></div>
 
         <h2>7. 训练怎样改变 test-time behavior？</h2>
         <p>CoT demonstration 可以让模型模仿人类写出的步骤；可验证奖励 RL 则直接奖励最终成功，让模型自己探索有用的长度、回溯和验证模式。后者可能产生更长推理，却也可能出现冗余循环、reward exploit 或不可读轨迹。</p>
         <p>推理 token 增加不是能力提升的充分条件。必须同时看正确率、校准、延迟、token 成本，以及额外计算在难题上是否真正带来边际收益。</p>
         <div class="concept-callout"><strong>常见误解：</strong><p>“模型想得更久”是工程比喻。我们能直接观测的是更多串行/并行前向计算和搜索；它是否对应人类式思考，需要更谨慎的机制证据。</p></div>
 
-        <section class="learning-check"><h3>自测</h3>
+        <section class="learning-check"><h3>自测：先算后展开</h3>
             <details><summary>1. CoT 为什么可能增加模型可用计算？</summary><p>每个中间 token 都触发新的网络前向，并把结果加入上下文，使复杂映射能沿生成时间分多步展开。</p></details>
             <details><summary>2. Self-consistency 与单纯拉长一个答案有何不同？</summary><p>Self-consistency 并行采样多条不同路径并聚合最终答案；拉长答案只增加单一路径的串行步骤。</p></details>
             <details><summary>3. 为什么 pass@k 高不代表系统最终准确率高？</summary><p>它只说明候选集中至少有一个正确答案；如果没有可靠 checker，系统可能无法识别并返回它。</p></details>
+            <details><summary>4. 单样本成功率 0.5，独立采样 4 次 pass@4？</summary><p>$1-0.5^4=0.9375$。</p></details>
+            <details><summary>5. 5 路投票结果 A,A,B,A,B，majority 是什么？</summary><p>A 获 3 票、B 获 2 票，返回 A；这不证明 A 真实正确。</p></details>
         </section>
         <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2201.11903">Chain-of-Thought Prompting</a>；<a href="https://arxiv.org/abs/2203.11171">Self-Consistency</a>；<a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>。</p></div>
         <nav class="article-series-nav"><a href="/notes/llm-cv/11-sft-rlhf-dpo-rlvr/">← 上一篇：后训练</a><a href="/notes/llm-cv/13-rag-tools-agents/">下一篇：RAG、Tools 与 Agent →</a></nav>
