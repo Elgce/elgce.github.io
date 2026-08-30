@@ -49,8 +49,25 @@
     <div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>query ↓ / key →</th><th>A</th><th>B</th><th>C</th></tr></thead><tbody><tr><th>A</th><td>1</td><td>0</td><td>1</td></tr><tr><th>B</th><td>1</td><td>1</td><td>2</td></tr><tr class="matrix-highlight"><th>C</th><td>2</td><td>1</td><td>3</td></tr></tbody></table></div>
     <p><strong>行是“谁在问”，列是“它在读谁”</strong>。矩阵有 $n^2$ 个元素，这是标准 attention 长序列成本的来源。</p>
 
-    <h2>4. Cross-attention：用一组 token 读取另一组 token</h2>
-    <p>Cross-attention 中，query 与 key/value 的来源不同。经典 encoder-decoder 模型里，decoder hidden states 产生 Q，encoder outputs 产生 K/V；在 VLM 或机器人模型里，也可以让语言、动作或 learned query 去读取视觉特征。</p>
+    <h2 id="cross-attention">4. Cross-attention：先理解 Encoder 与 Decoder</h2>
+    <p><strong>Encoder 和 decoder 是两组职责不同的 Transformer blocks。</strong>Encoder 负责把已经完整给出的输入读懂，变成一组带上下文的 memory；decoder 负责根据已经生成的前缀，一步步预测下一个输出 token。</p>
+
+    <div class="compare-grid"><div class="compare-card"><h3>Encoder：阅读器</h3><p>输入已经全部存在，例如整句英文或整张图像。它通常使用 full self-attention，让每个输入位置相互读取，输出一组 memory vectors；它本身不负责逐 token 生成答案。</p></div><div class="compare-card"><h3>Decoder：生成器</h3><p>输出尚未完成。它读取当前已经生成的目标前缀，用 causal self-attention 禁止偷看未来，再预测下一个 token。</p></div></div>
+
+    <div class="numeric-example"><p class="numeric-example__title">先不算矩阵：用英译中理解两部分的分工</p>
+        <p>任务是把 <code>I love robots</code> 翻译成 <code>我 喜欢 机器人</code>。先假设每项恰好是一个 token：</p>
+        <div class="calculation-stack">
+            <p>Encoder 一次读入：<code>[I, love, robots]</code>。</p>
+            <p>Encoder 输出 memory：<code>[m₀, m₁, m₂]</code>，三行分别已经包含整句上下文，而不只是三个孤立词义。</p>
+        </div>
+        <table class="calculation-table"><thead><tr><th>生成步</th><th>Decoder 已有前缀</th><th>Cross-attention 可读取</th><th>预测下一个 token</th></tr></thead><tbody><tr><td>0</td><td><code>&lt;BOS&gt;</code></td><td><code>[m₀,m₁,m₂]</code></td><td><code>我</code></td></tr><tr><td>1</td><td><code>&lt;BOS&gt; 我</code></td><td><code>[m₀,m₁,m₂]</code></td><td><code>喜欢</code></td></tr><tr><td>2</td><td><code>&lt;BOS&gt; 我 喜欢</code></td><td><code>[m₀,m₁,m₂]</code></td><td><code>机器人</code></td></tr><tr><td>3</td><td><code>&lt;BOS&gt; 我 喜欢 机器人</code></td><td><code>[m₀,m₁,m₂]</code></td><td><code>&lt;EOS&gt;</code></td></tr></tbody></table>
+        <p>源句只编码一次，memory 可以被每个生成步骤重复读取。Decoder 的问题不断变化，所以每一步产生不同 Q；encoder memory 不变，但一直提供 K/V。</p>
+    </div>
+
+    <div class="matrix-wrap"><table class="matrix-table"><thead><tr><th>常见架构</th><th>里面有什么</th><th>典型用途</th></tr></thead><tbody><tr><th>Encoder-only</th><td>只有 full self-attention encoder</td><td>理解、分类、表征，例如 BERT</td></tr><tr class="matrix-highlight"><th>Decoder-only</th><td>只有 causal self-attention decoder；没有独立 encoder，也通常没有 cross-attention</td><td>自回归生成，例如 GPT</td></tr><tr><th>Encoder–decoder</th><td>Encoder + decoder；decoder 用 cross-attention 读取 encoder memory</td><td>翻译、条件生成，例如原始 Transformer、T5</td></tr></tbody></table></div>
+    <p>所以 <strong>Transformer 不等于 encoder–decoder</strong>。GPT 是 decoder-only；这里引入 encoder–decoder，是为了用最经典、最清晰的结构解释 cross-attention。VLM 或机器人模型也可能让语言、动作或 learned query 去读取视觉 encoder 产生的特征。</p>
+
+    <p>Cross-attention 中，query 与 key/value 的来源不同：decoder hidden states 产生 Q，encoder memory 产生 K/V。</p>
     <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>当前解码/动作状态</small><strong>$X_q$ → Q</strong></div><span class="process-arrow">→</span><div class="process-step"><small>提出问题</small><strong>我要读取什么？</strong></div><span class="process-arrow">←</span><div class="process-step"><small>图像/编码器上下文</small><strong>$X_c$ → K, V</strong></div><span class="process-arrow">→</span><div class="process-step"><small>返回结果</small><strong>上下文加权和</strong></div></div><figcaption>输出行数跟 query 数量 $n_q$ 相同；每个 query 都从 $n_c$ 个上下文位置收集一份信息。</figcaption></figure>
 
     <div class="numeric-example"><p class="numeric-example__title">例 4A：一个动作 query 读取三个视觉 token</p>
@@ -63,33 +80,73 @@
 
     <div class="compare-grid"><div class="compare-card"><h3>Decoder self-attention</h3><p>当前生成位置读取 decoder 自己已经允许看到的 token；自回归时通常使用 causal mask。</p></div><div class="compare-card"><h3>Encoder-decoder cross-attention</h3><p>decoder query 读取 encoder memory；通常不需要因果遮住 encoder 内容，但仍可能使用 padding 或有效区域 mask。</p></div></div>
 
-    <h3>一个 encoder–decoder layer 的实际计算顺序</h3>
+    <h3 id="encoder-decoder-flow">Encoder 与 Decoder 两路信息怎样在 Cross-attention 汇合</h3>
     <figure class="learning-figure">
-        <div class="process-flow" aria-label="Encoder path">
-            <div class="process-step"><small>Encoder 输入</small><strong>源文本 / 图像 tokens</strong></div>
-            <span class="process-arrow">→</span>
-            <div class="process-step"><small>Encoder</small><strong>双向 self-attention</strong></div>
-            <span class="process-arrow">→</span>
-            <div class="process-step"><small>固定 memory</small><strong>$M$ 提供 K、V</strong></div>
+        <div class="matrix-wrap">
+            <svg viewBox="0 0 1120 350" role="img" aria-labelledby="encoder-decoder-flow-title encoder-decoder-flow-desc" style="display:block;width:100%;height:auto">
+                <title id="encoder-decoder-flow-title">Encoder memory 与 decoder state 在 cross-attention 汇合</title>
+                <desc id="encoder-decoder-flow-desc">源文本或图像经过 encoder 形成 memory M，提供 key 和 value。右移目标序列经过 causal self-attention 形成 decoder state H，提供 query。两条路径在 cross-attention 汇合，再进入 MLP 和下一层。</desc>
+                <defs><marker id="encoder-decoder-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted)"/></marker></defs>
+
+                <text x="20" y="30" fill="var(--accent)" font-size="17" font-weight="700">上路：先把全部输入编码成可查询的资料库</text>
+                <rect x="20" y="55" width="190" height="90" rx="12" fill="var(--soft)" stroke="var(--accent)" stroke-width="2"/>
+                <text x="115" y="88" text-anchor="middle" fill="var(--muted)" font-size="14">Encoder 输入</text>
+                <text x="115" y="119" text-anchor="middle" fill="var(--ink)" font-size="17" font-weight="700">图像 / 源文本 tokens</text>
+
+                <line x1="210" y1="100" x2="258" y2="100" stroke="var(--muted)" stroke-width="2" marker-end="url(#encoder-decoder-arrow)"/>
+                <rect x="260" y="55" width="190" height="90" rx="12" fill="var(--soft)" stroke="var(--accent)" stroke-width="2"/>
+                <text x="355" y="88" text-anchor="middle" fill="var(--muted)" font-size="14">① Encoder</text>
+                <text x="355" y="119" text-anchor="middle" fill="var(--ink)" font-size="17" font-weight="700">Full self-attention</text>
+
+                <line x1="450" y1="100" x2="498" y2="100" stroke="var(--muted)" stroke-width="2" marker-end="url(#encoder-decoder-arrow)"/>
+                <rect x="500" y="55" width="210" height="90" rx="12" fill="var(--soft)" stroke="var(--accent)" stroke-width="2"/>
+                <text x="605" y="88" text-anchor="middle" fill="var(--muted)" font-size="14">Encoder memory M</text>
+                <text x="605" y="119" text-anchor="middle" fill="var(--ink)" font-size="17" font-weight="700">整段输入的表示</text>
+
+                <text x="20" y="210" fill="var(--accent-2)" font-size="17" font-weight="700">下路：整理 decoder 到目前为止已经生成的内容</text>
+                <rect x="20" y="235" width="190" height="90" rx="12" fill="#eef6f6" stroke="var(--accent-2)" stroke-width="2"/>
+                <text x="115" y="268" text-anchor="middle" fill="var(--muted)" font-size="14">右移后的 Decoder 输入</text>
+                <text x="115" y="299" text-anchor="middle" fill="var(--ink)" font-size="17" font-weight="700">&lt;BOS&gt;　I　love</text>
+
+                <line x1="210" y1="280" x2="258" y2="280" stroke="var(--muted)" stroke-width="2" marker-end="url(#encoder-decoder-arrow)"/>
+                <rect x="260" y="235" width="190" height="90" rx="12" fill="#eef6f6" stroke="var(--accent-2)" stroke-width="2"/>
+                <text x="355" y="268" text-anchor="middle" fill="var(--muted)" font-size="14">② Decoder 子层 1</text>
+                <text x="355" y="299" text-anchor="middle" fill="var(--ink)" font-size="17" font-weight="700">Causal self-attention</text>
+
+                <line x1="450" y1="280" x2="498" y2="280" stroke="var(--muted)" stroke-width="2" marker-end="url(#encoder-decoder-arrow)"/>
+                <rect x="500" y="235" width="210" height="90" rx="12" fill="#eef6f6" stroke="var(--accent-2)" stroke-width="2"/>
+                <text x="605" y="268" text-anchor="middle" fill="var(--muted)" font-size="14">Decoder state H</text>
+                <text x="605" y="299" text-anchor="middle" fill="var(--ink)" font-size="17" font-weight="700">“我现在需要什么？”</text>
+
+                <path d="M 710 100 C 750 100, 744 165, 788 180" fill="none" stroke="var(--accent)" stroke-width="3" marker-end="url(#encoder-decoder-arrow)"/>
+                <text x="735" y="127" fill="var(--accent)" font-size="16" font-weight="700">K、V</text>
+                <text x="724" y="149" fill="var(--muted)" font-size="13">可提供的源信息</text>
+
+                <path d="M 710 280 C 750 280, 744 235, 788 220" fill="none" stroke="var(--accent-2)" stroke-width="3" marker-end="url(#encoder-decoder-arrow)"/>
+                <text x="741" y="272" fill="var(--accent-2)" font-size="16" font-weight="700">Q</text>
+                <text x="724" y="294" fill="var(--muted)" font-size="13">当前查询</text>
+
+                <rect x="790" y="160" width="155" height="100" rx="14" fill="#fff7df" stroke="#b18121" stroke-width="3"/>
+                <text x="868" y="196" text-anchor="middle" fill="var(--muted)" font-size="14">③ Decoder 子层 2</text>
+                <text x="868" y="226" text-anchor="middle" fill="var(--ink)" font-size="17" font-weight="700">Cross-attention</text>
+
+                <line x1="945" y1="210" x2="978" y2="210" stroke="var(--muted)" stroke-width="2" marker-end="url(#encoder-decoder-arrow)"/>
+                <rect x="980" y="160" width="125" height="100" rx="14" fill="var(--panel)" stroke="var(--line)" stroke-width="2"/>
+                <text x="1043" y="190" text-anchor="middle" fill="var(--muted)" font-size="14">④</text>
+                <text x="1043" y="216" text-anchor="middle" fill="var(--ink)" font-size="16" font-weight="700">MLP + 残差</text>
+                <text x="1043" y="241" text-anchor="middle" fill="var(--ink)" font-size="14">→ 下一层</text>
+
+            </svg>
         </div>
-        <div class="process-flow" aria-label="Decoder path">
-            <div class="process-step"><small>Decoder 输入</small><strong>右移后的目标 tokens</strong></div>
-            <span class="process-arrow">→</span>
-            <div class="process-step"><small>子层 1</small><strong>causal self-attention</strong></div>
-            <span class="process-arrow">→</span>
-            <div class="process-step"><small>当前状态</small><strong>$H$ 提供 Q</strong></div>
-        </div>
-        <div class="process-flow" aria-label="Cross attention fusion path">
-            <div class="process-step"><small>融合输入</small><strong>Q 来自 $H$；K、V 来自 $M$</strong></div>
-            <span class="process-arrow">→</span>
-            <div class="process-step"><small>子层 2</small><strong>cross-attention</strong></div>
-            <span class="process-arrow">→</span>
-            <div class="process-step"><small>子层 3</small><strong>MLP + residual</strong></div>
-            <span class="process-arrow">→</span>
-            <div class="process-step"><small>输出</small><strong>下层 hidden states / logits</strong></div>
-        </div>
-        <figcaption>先在 decoder 内部整理“到目前为止生成了什么”，再拿这个状态作为 Query 去读取已经编码好的源信息。一个 decoder layer 通常按 masked self-attention → cross-attention → MLP 排列，每个子层外还有 normalization 与 residual。</figcaption>
+        <figcaption>只看两条箭头：Encoder memory M 向 cross-attention 提供 K/V；decoder state H 向它提供 Q。二者不是前后串行，而是在 cross-attention 这里汇合。</figcaption>
     </figure>
+
+    <ol>
+        <li><strong>Encoder 只处理源输入：</strong>例如整张图像或整句待翻译文本，得到 memory $M$。</li>
+        <li><strong>Decoder 先处理自己的历史：</strong>例如 <code>&lt;BOS&gt; I love</code>，通过 causal self-attention 得到当前状态 $H$。</li>
+        <li><strong>两路在 cross-attention 汇合：</strong>$H$ 产生 Q，表示“我现在要找什么”；$M$ 产生 K/V，表示“源输入有哪些信息以及具体内容”。</li>
+        <li><strong>融合结果继续进入 MLP：</strong>再经过 residual、normalization 和后续 decoder layers；最后一层才通过 LM Head 得到 logits。</li>
+    </ol>
 
     <div class="numeric-example"><p class="numeric-example__title">例 4B：训练时输入为什么要右移</p>
         <table class="calculation-table"><thead><tr><th>位置</th><th>0</th><th>1</th><th>2</th><th>3</th></tr></thead><tbody><tr><th>Decoder 输入</th><td><code>&lt;BOS&gt;</code></td><td><code>I</code></td><td><code>love</code></td><td><code>robot</code></td></tr><tr><th>正确标签</th><td><code>I</code></td><td><code>love</code></td><td><code>robot</code></td><td><code>&lt;EOS&gt;</code></td></tr></tbody></table>
