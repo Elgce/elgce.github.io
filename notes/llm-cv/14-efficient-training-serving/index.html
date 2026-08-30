@@ -10,13 +10,16 @@
 </head>
 <body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
     <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
-    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">14 / 14 · 初稿待学习</span><p class="eyebrow">系统工程</p><h1>LoRA、量化、KV Cache 与分布式训练</h1><p class="learning-header__lead">模型算法决定需要算什么，系统工程决定这些计算能否装进显存、喂满 GPU，并以可接受的延迟服务真实用户。</p></header>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">14 / 14 · 第一轮精讲</span><p class="eyebrow">系统工程</p><h1>LoRA、量化、KV Cache 与分布式训练</h1><p class="learning-header__lead">模型算法决定需要算什么，系统工程决定这些计算能否装进显存、喂满 GPU，并以可接受的延迟服务真实用户。</p></header>
     <div class="post-content learning-article">
         <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>LoRA 减少可训练参数，量化减少每个数的位宽，KV cache 避免重复计算历史，FlashAttention 减少显存 IO，vLLM 改善请求级 cache 管理；ZeRO/FSDP 和模型并行则把训练状态与计算分到多卡。</strong></p></div>
+        <div class="learning-route"><span>列出 tensors</span><b>→</b><span>算 bytes</span><b>→</b><span>找显存 / IO / FLOPs 瓶颈</span><b>→</b><span>选择 LoRA / quant / cache</span><b>→</b><span>选择并行维度</span><b>→</b><span>测吞吐与延迟</span></div>
+        <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>训练</small><strong>weights + grads + optimizer + activations</strong></div><span class="process-arrow">|</span><div class="process-step"><small>Prefill</small><strong>并行处理 prompt → KV</strong></div><span class="process-arrow">|</span><div class="process-step"><small>Decode</small><strong>每步 1 token + 读 KV</strong></div></div><figcaption>训练、prefill、decode 的瓶颈不同：同一优化不会同时解决全部阶段。</figcaption></figure>
 
         <h2>1. 先区分训练显存花在哪里</h2>
         <p>全参数训练不仅存模型权重，还要存梯度、optimizer states 和为反向传播保留的 activations。以 Adam 为例，optimizer 常为每个参数维护一阶、二阶矩；混合精度训练还可能保留高精度 master weights。</p>
         <p>所以“模型权重能装进一张卡”不代表它能全量训练。Batch size、sequence length 和 activation checkpointing 也会显著改变峰值显存。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 1：1B 参数 Adam 训练的静态状态量级</p><p>粗略假设 bf16 权重 2 bytes、bf16 gradient 2 bytes、fp32 master weight 4 bytes、Adam 一阶与二阶各 4 bytes：</p><div class="equation">$$1\text{B}\times(2+2+4+4+4)=16\text{ GB}$$</div><p>这还不含 activations、临时 buffer、allocator 碎片。只有 2 GB 权重绝不表示 2 GB 就能训练。</p></div>
 
         <h2>2. LoRA：只训练低秩增量</h2>
         <p>冻结预训练矩阵 $W\in\mathbb R^{d_{out}\times d_{in}}$，把更新写成低秩分解：</p>
@@ -24,6 +27,7 @@
         <p>$A\in\mathbb R^{r\times d_{in}}$、$B\in\mathbb R^{d_{out}\times r}$，且 $r\ll d$。训练参数从 $d_{out}d_{in}$ 降到 $r(d_{in}+d_{out})$。优化器 states 和梯度只需为 A/B 保存。</p>
         <p>LoRA 假设任务适配所需权重变化近似低 intrinsic rank。它可插入 attention/MLP 的若干线性层，推理前还能把 $BA$ 合并进 $W$，因此不必增加额外路径延迟。</p>
         <p>低 rank 不等于永远不损失能力：任务跨度大、数据多、需要重塑底层表示时，全量微调可能更强；target modules、rank、scaling 和数据质量都重要。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 2：LoRA 参数量</p><p>$W$ 为 $4096\times4096$，原矩阵有 $16{,}777{,}216$ 参数。取 rank $r=8$：</p><div class="equation">$$|A|+|B|=8\times4096+4096\times8=65{,}536$$</div><p>仅为原矩阵的 $65{,}536/16{,}777{,}216=0.390625\%$；前向仍需使用完整 base matrix。</p></div>
 
         <h2>3. QLoRA 与普通量化的区别</h2>
         <p>QLoRA 把<strong>冻结的 base weights</strong> 存成 4-bit，计算时按需要反量化到计算 dtype，并通过它反向传播到 BF16/FP16 LoRA adapters。它不是用 4-bit optimizer 去更新所有 base parameters。</p>
@@ -36,6 +40,7 @@
             <tr><td>KV cache</td><td>长上下文/大 batch cache 更小</td><td>attention 质量与解码 kernel</td></tr>
         </tbody></table>
         <p>Per-channel/group scaling 通常比整张 tensor 一个 scale 更准确。位宽更低不保证 wall-clock 更快：如果硬件缺少对应 kernel，频繁 pack/unpack 可能抵消收益。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 3：对称 int8 量化</p><p>一组权重最大绝对值 1.27，int8 正范围到 127，scale=$1.27/127=0.01$。权重 0.37 量化为 $q=\operatorname{round}(0.37/0.01)=37$，反量化 $37\times0.01=0.37$；权重 0.374 则变 0.37，误差 -0.004。</p></div>
 
         <h2>5. KV cache 为什么省计算却吃显存？</h2>
         <p>自回归生成第 $t$ 个 token 时，过去 token 的 K/V 不会改变。缓存后只需计算新 token 的 Q/K/V，并让新 Query 关注缓存；否则每一步都要重算全部历史。</p>
@@ -43,17 +48,21 @@
         <div class="equation">$$2\times L\times T\times H_{kv}\times d_{head}\times bytes\times batch$$</div>
         <p>2 代表 K 和 V，$L$ 是层数，$T$ 是上下文长度。长上下文和并发请求使 cache 成为 serving 主显存瓶颈。</p>
         <p>Multi-Query Attention 让所有 Query heads 共享一组 K/V；Grouped-Query Attention 让一组 Query heads 共享 K/V，位于 MHA 与 MQA 之间。它们减少 KV heads，从而降低 cache 和 memory bandwidth。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 4：KV cache 精确量级</p><p>$L=32,T=4096,H_{kv}=8,d_{head}=128$，bf16 2 bytes，batch 1：</p><div class="equation">$$2\times32\times4096\times8\times128\times2=536{,}870{,}912\text{ bytes}\approx512\text{ MiB}$$</div><p>Batch 16 时约 8 GiB。若从 32 KV heads 改为 8，cache 正好降到四分之一。</p></div>
 
         <h2>6. FlashAttention 优化的不是数学结果</h2>
         <p>朴素 attention 会把巨大 $N\times N$ score/softmax matrix 写到 GPU HBM，再多次读回。FlashAttention 按 block 在片上 SRAM 中计算，并用 online softmax 分块归一化，避免 materialize 完整矩阵。</p>
         <p>它是 exact attention（允许正常浮点误差），主要降低 HBM IO 和中间显存。标准 dense attention 的理论 FLOPs 仍约 $O(N^2)$；它让同样计算更贴合 GPU memory hierarchy，而不是把算法突然变成线性。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 5：不 materialize score matrix</p><p>序列 8,192、单 head 的 fp16 score matrix 有 $8192^2=67{,}108{,}864$ 项，约 128 MiB。32 heads 若都显式保存就是约 4 GiB（单层、未计其他激活）。FlashAttention 分块维护 online softmax 统计量，避免把这张完整矩阵写回 HBM。</p></div>
 
         <h2>7. vLLM / PagedAttention 管理的是请求碎片</h2>
         <p>不同请求长度、生成速度和 beam 数不同。若为每个请求预留连续最大 KV buffer，会浪费大量空闲空间并产生碎片。PagedAttention 把 KV cache 分成固定大小 blocks，用类似虚拟内存的 block table 把逻辑连续 token 映射到非连续物理块。</p>
         <p>这让 block 可按需分配、共享和释放，配合 continuous batching 在请求到达/结束时动态调整 batch，提高吞吐。它优化的是 serving memory management，不是新的 attention 训练目标。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 6：连续预留与分页</p><p>三个请求实际需要 100、260、20 个 token，却都按最大 512 预留：占 1,536 slots，实际只用 380，利用率 24.7%。若 page size 16，各自需 7、17、2 页，共 416 slots，利用率 91.3%。</p></div>
 
         <h2>8. Speculative decoding 为什么还能保持目标分布？</h2>
         <p>小 draft model 快速提出多个 token，大 target model 一次并行验证。按接受/拒绝规则修正后，输出仍可采样自 target distribution。若 draft 与 target 高度一致，一次 target forward 接受多个 token，减少串行步数；若接受率低，额外 draft 计算可能不划算。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 7：speculative 的有效步长</p><p>Draft 每轮提议 4 tokens，平均接受 3 个，再由 target 补 1 个，则一次 target 验证平均前进约 4 tokens；生成 100 tokens 约需 25 次 target rounds，而普通 decoding 需 100 次。真实速度还要扣除 draft 成本与拒绝浪费。</p></div>
 
         <h2>9. 多 GPU 训练到底切分什么？</h2>
         <table><thead><tr><th>方法</th><th>切分对象</th><th>主要通信</th></tr></thead><tbody>
@@ -64,13 +73,16 @@
             <tr><td>Context/Sequence Parallel</td><td>长序列维</td><td>attention/sequence collectives</td></tr>
         </tbody></table>
         <p>现实大模型常组合 3D/4D parallelism。最佳拓扑取决于模型形状、节点内 NVLink、节点间网络、batch 和 sequence length；“能跑”与“GPU 利用率高”是不同目标。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 8：ZeRO-3 / FSDP 的理想分片下限</p><p>若静态模型状态共 160 GB，分到 8 卡，理想均分是每卡 20 GB，而 data parallel 每卡都要 160 GB。实际峰值还包含 all-gather 中的临时完整参数片段、activations 与通信 buffer，所以不会恰好只有 20 GB。</p></div>
 
         <div class="concept-callout"><strong>常见误解：</strong><p>这些技术优化的层次不同，不能互相替代。LoRA 不解决 activation memory，FlashAttention 不减少模型参数，KV cache 不加速训练，ZeRO/FSDP 也不会让单 token 推理自动变快。</p></div>
-        <section class="learning-check"><h3>自测</h3>
+        <section class="learning-check"><h3>自测：先算后展开</h3>
             <details><summary>1. LoRA 主要省下哪部分训练显存？</summary><p>冻结 base weights 后，只为低秩 adapter 保存梯度与 optimizer states；base 权重仍需存储和参与前向。</p></details>
             <details><summary>2. KV cache 为什么随 context 线性增长？</summary><p>每层要为每个历史 token 保存 K 和 V；token 数增加一倍，缓存条目也约增加一倍。</p></details>
             <details><summary>3. FlashAttention 与稀疏 attention 的本质差别？</summary><p>FlashAttention 通过 tiling/IO 优化精确 dense attention；稀疏 attention 改变被计算的连接集合以降低理论计算。</p></details>
             <details><summary>4. FSDP 与 tensor parallel 切分什么不同？</summary><p>FSDP 在 data-parallel workers 间分片模型状态并按需聚合；tensor parallel 把同一层矩阵运算本身跨卡拆开。</p></details>
+            <details><summary>5. 7B 参数仅以 fp16 存权重约多大？</summary><p>$7\text{B}\times2$ bytes = 14 GB（十进制），不含量化 metadata、runtime buffer 与 cache。</p></details>
+            <details><summary>6. Context 从 2K 增至 8K，KV cache 变几倍？attention score 数变几倍？</summary><p>KV cache 随长度线性，变 4 倍；dense score 数随长度平方，变 16 倍。</p></details>
         </section>
         <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2106.09685">LoRA</a>；<a href="https://arxiv.org/abs/2305.14314">QLoRA</a>；<a href="https://arxiv.org/abs/2205.14135">FlashAttention</a>；<a href="https://arxiv.org/abs/2309.06180">PagedAttention / vLLM</a>；<a href="https://arxiv.org/abs/1910.02054">ZeRO</a>；<a href="https://arxiv.org/abs/2305.13245">GQA</a>；<a href="https://arxiv.org/abs/2211.17192">Speculative Decoding</a>。</p></div>
         <nav class="article-series-nav"><a href="/notes/llm-cv/13-rag-tools-agents/">← 上一篇：RAG 与 Agent</a><a href="/notes/llm-cv/">返回系列目录 →</a></nav>
