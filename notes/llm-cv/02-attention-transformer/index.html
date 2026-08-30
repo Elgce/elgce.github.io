@@ -53,7 +53,7 @@
     <p>Cross-attention 中，query 与 key/value 的来源不同。经典 encoder-decoder 模型里，decoder hidden states 产生 Q，encoder outputs 产生 K/V；在 VLM 或机器人模型里，也可以让语言、动作或 learned query 去读取视觉特征。</p>
     <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>当前解码/动作状态</small><strong>$X_q$ → Q</strong></div><span class="process-arrow">→</span><div class="process-step"><small>提出问题</small><strong>我要读取什么？</strong></div><span class="process-arrow">←</span><div class="process-step"><small>图像/编码器上下文</small><strong>$X_c$ → K, V</strong></div><span class="process-arrow">→</span><div class="process-step"><small>返回结果</small><strong>上下文加权和</strong></div></div><figcaption>输出行数跟 query 数量 $n_q$ 相同；每个 query 都从 $n_c$ 个上下文位置收集一份信息。</figcaption></figure>
 
-    <div class="numeric-example"><p class="numeric-example__title">例 4：一个动作 query 读取三个视觉 token</p>
+    <div class="numeric-example"><p class="numeric-example__title">例 4A：一个动作 query 读取三个视觉 token</p>
         <p>假设动作 query 投影后为 $q=[1,1]$。图像编码器给出三个视觉 token 的 key 和 value：</p>
         <table class="calculation-table"><thead><tr><th>视觉 token</th><th>Key</th><th>Value</th><th>$q\cdot k$</th></tr></thead><tbody><tr><td>红色方块</td><td><code>[1, 0]</code></td><td><code>[2, 0]</code></td><td>1</td></tr><tr><td>蓝色碗</td><td><code>[0, 1]</code></td><td><code>[0, 4]</code></td><td>1</td></tr><tr class="matrix-highlight"><td>方块与碗的空间关系</td><td><code>[1, 1]</code></td><td><code>[1, 1]</code></td><td>2</td></tr></tbody></table>
         <div class="calculation-stack"><p>原始 scores：$[1,1,2]$。</p><p>$d_k=2$，缩放后：$[0.707,0.707,1.414]$。</p><p>指数值约为：$[2.028,2.028,4.113]$，总和为 $8.169$。</p><p>Softmax 权重约为：$[0.248,0.248,0.503]$。</p></div>
@@ -62,11 +62,51 @@
     </div>
 
     <div class="compare-grid"><div class="compare-card"><h3>Decoder self-attention</h3><p>当前生成位置读取 decoder 自己已经允许看到的 token；自回归时通常使用 causal mask。</p></div><div class="compare-card"><h3>Encoder-decoder cross-attention</h3><p>decoder query 读取 encoder memory；通常不需要因果遮住 encoder 内容，但仍可能使用 padding 或有效区域 mask。</p></div></div>
+
+    <h3>一个 encoder–decoder layer 的实际计算顺序</h3>
+    <figure class="learning-figure">
+        <div class="process-flow" aria-label="Encoder path">
+            <div class="process-step"><small>Encoder 输入</small><strong>源文本 / 图像 tokens</strong></div>
+            <span class="process-arrow">→</span>
+            <div class="process-step"><small>Encoder</small><strong>双向 self-attention</strong></div>
+            <span class="process-arrow">→</span>
+            <div class="process-step"><small>固定 memory</small><strong>$M$ 提供 K、V</strong></div>
+        </div>
+        <div class="process-flow" aria-label="Decoder path">
+            <div class="process-step"><small>Decoder 输入</small><strong>右移后的目标 tokens</strong></div>
+            <span class="process-arrow">→</span>
+            <div class="process-step"><small>子层 1</small><strong>causal self-attention</strong></div>
+            <span class="process-arrow">→</span>
+            <div class="process-step"><small>当前状态</small><strong>$H$ 提供 Q</strong></div>
+        </div>
+        <div class="process-flow" aria-label="Cross attention fusion path">
+            <div class="process-step"><small>融合输入</small><strong>Q 来自 $H$；K、V 来自 $M$</strong></div>
+            <span class="process-arrow">→</span>
+            <div class="process-step"><small>子层 2</small><strong>cross-attention</strong></div>
+            <span class="process-arrow">→</span>
+            <div class="process-step"><small>子层 3</small><strong>MLP + residual</strong></div>
+            <span class="process-arrow">→</span>
+            <div class="process-step"><small>输出</small><strong>下层 hidden states / logits</strong></div>
+        </div>
+        <figcaption>先在 decoder 内部整理“到目前为止生成了什么”，再拿这个状态作为 Query 去读取已经编码好的源信息。一个 decoder layer 通常按 masked self-attention → cross-attention → MLP 排列，每个子层外还有 normalization 与 residual。</figcaption>
+    </figure>
+
+    <div class="numeric-example"><p class="numeric-example__title">例 4B：训练时输入为什么要右移</p>
+        <table class="calculation-table"><thead><tr><th>位置</th><th>0</th><th>1</th><th>2</th><th>3</th></tr></thead><tbody><tr><th>Decoder 输入</th><td><code>&lt;BOS&gt;</code></td><td><code>I</code></td><td><code>love</code></td><td><code>robot</code></td></tr><tr><th>正确标签</th><td><code>I</code></td><td><code>love</code></td><td><code>robot</code></td><td><code>&lt;EOS&gt;</code></td></tr></tbody></table>
+        <p>位置 2 只能用 <code>&lt;BOS&gt;, I, love</code> 形成自己的 decoder state，然后通过 cross-attention 读取完整 encoder memory，预测 <code>robot</code>。右移负责把答案放到下一格；causal mask 负责阻止当前格沿 self-attention 偷看右侧答案。</p>
+    </div>
+
     <div class="concept-callout"><strong>多模态不一定等于显式 cross-attention：</strong><p>一种模型会保留独立视觉编码器，再用 cross-attention 融合；另一种会先把图像、文字、动作 token 拼成一个序列，再使用带特定 mask 的 self-attention。两者都能交换跨模态信息，但连接方式、计算形状与缓存策略不同。</p></div>
 
     <h2>5. Mask 为什么必须在 softmax 前？</h2>
+    <p><strong>Causal 不是一种新的神经网络层，而是加在 self-attention score matrix 上的可见性约束。</strong>先照常计算所有 query 与 key 的分数，再把未来位置加上 $-\infty$，最后逐行做 softmax：</p>
+    <div class="equation">$$S=QK^\top/\sqrt{d_k},\qquad A=\operatorname{softmax}(S+M_{\text{causal}})$$</div>
+    <div class="equation">$$M_{\text{causal}}=\begin{bmatrix}0&-\infty&-\infty&-\infty\\0&0&-\infty&-\infty\\0&0&0&-\infty\\0&0&0&0\end{bmatrix}$$</div>
+    <p>第 $i$ 行代表位置 $i$ 发出的 query；它只能读取列号 $j\le i$ 的 key。被加上 $-\infty$ 的位置经过指数运算后变成 0，因此未来 token 对输出的贡献严格为 0。</p>
     <figure class="learning-figure"><div class="mask-grid" role="img" aria-label="Three by three causal attention mask"><span></span><strong>A</strong><strong>B</strong><strong>C</strong><strong></strong><strong></strong><strong>A</strong><span class="mask-yes">✓</span><span class="mask-no">×</span><span class="mask-no">×</span><strong></strong><strong></strong><strong>B</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-no">×</span><strong></strong><strong></strong><strong>C</strong><span class="mask-yes">✓</span><span class="mask-yes">✓</span><span class="mask-yes">✓</span><strong></strong><strong></strong></div><figcaption>上三角被屏蔽。Padding mask 则屏蔽补齐位置，两种 mask 可以叠加。</figcaption></figure>
     <div class="numeric-example"><p class="numeric-example__title">例 5：B 不能偷看 C</p><p>B 行是 $[1,1,2]$，causal mask 后为 $[1,1,-\infty]$。除以 $\sqrt2$ 后前两项相同，softmax 是 $[0.5,0.5,0]$。</p><div class="equation">$$o_B=0.5v_A+0.5v_B=0.5[1,0]+0.5[1,2]=[1,1]$$</div><p>若 softmax 后才遮住第三项，剩余权重通常不再和为 1。</p></div>
+
+    <div class="compare-grid"><div class="compare-card"><h3>训练：整句并行</h3><p>整条右移序列一次进入 decoder，所有位置的 Q/K/V 和 logits 可以用矩阵乘法同时算出；三角 mask 保证每一行虽然同时存在，却只能使用自己的过去。</p></div><div class="compare-card"><h3>推理：逐 token + KV cache</h3><p>未来 token 尚不存在，只计算最新位置的 query。过去各层的 K/V 缓存在显存中，新 query 读取缓存并追加自己的 K/V，避免每一步重复计算整个前缀。</p></div></div>
 
     <h2>6. 互动：拖动 score，观察 softmax 与输出</h2>
     <figure class="learning-figure autoregressive-demo" id="attention-demo"><div class="demo-controls"><label for="att-score">把 C→C 的 score 改为：</label><input id="att-score" type="range" min="-2" max="4" value="2" step="0.1"><strong id="att-score-value">2.0</strong></div><div class="probability-bars" id="att-bars" aria-live="polite"></div><p id="att-output" class="calculation-line"></p><figcaption>另外两个 score 固定为 1 和 0；三个 Value 是 $[1,0]$、$[1,2]$、$[2,2]$。score 只改混合比例。</figcaption></figure>
@@ -84,7 +124,7 @@
     <div class="numeric-example"><p class="numeric-example__title">例 8：长度翻倍，score matrix 增长四倍</p><p>$n=1{,}024$ 时每 head 有 $1{,}024^2=1{,}048{,}576$ 个 score；$n=2{,}048$ 时有 $4{,}194{,}304$ 个，恰好 4 倍。若每项 fp16 占 2 bytes，一张显式矩阵约从 2 MiB 增至 8 MiB。</p></div>
 
     <div class="concept-callout"><strong>常见误解：</strong><p>高 attention weight 不自动等于“这个 token 对答案最重要”，更不是因果解释。它只是某一层、某一 head、某一 query 的路由系数；后续 residual、MLP 与其他层还会继续改变信息。</p></div>
-    <section class="learning-check"><h3>自测：先算后展开</h3><details><summary>1. $q=[1,2]$，keys 为 $[1,0]$、$[0,1]$，scores 是多少？</summary><p>$[1,2]$。</p></details><details><summary>2. scores 为 $[0,0]$、Values 为 $[2,0]$ 和 $[0,4]$，输出是什么？</summary><p>权重 $[0.5,0.5]$，输出 $[1,2]$。</p></details><details><summary>3. Self-attention 与 cross-attention 的核心区别是什么？</summary><p>Self-attention 的 Q、K、V 都投影自同一组 hidden states；cross-attention 的 Q 来自当前序列，K、V 来自另一组上下文。后续 score、softmax 和 Value 加权算法相同。</p></details><details><summary>4. 8 个动作 queries 读取 196 个视觉 tokens，score matrix 是什么形状？</summary><p>$Q$ 为 $8\times d_k$，$K^\top$ 为 $d_k\times196$，所以 score matrix 为 $8\times196$。</p></details><details><summary>5. 为什么 self-attention 中 Q、K、V 不一定相等？</summary><p>它们虽然都来自同一个 $X$，但分别乘以可训练的 $W_Q$、$W_K$、$W_V$，承担匹配问题、匹配索引和被搬运内容三种角色。</p></details><details><summary>6. Attention 与 MLP 分别负责什么？</summary><p>Attention 跨 token 路由；MLP 在每个 token 内变换通道。</p></details><details><summary>7. $d_{model}=768$、12 heads，每头维度和缩放因子？</summary><p>$768/12=64$，缩放因子 $\sqrt{64}=8$。</p></details></section>
+    <section class="learning-check"><h3>自测：先算后展开</h3><details><summary>1. $q=[1,2]$，keys 为 $[1,0]$、$[0,1]$，scores 是多少？</summary><p>$[1,2]$。</p></details><details><summary>2. scores 为 $[0,0]$、Values 为 $[2,0]$ 和 $[0,4]$，输出是什么？</summary><p>权重 $[0.5,0.5]$，输出 $[1,2]$。</p></details><details><summary>3. Self-attention 与 cross-attention 的核心区别是什么？</summary><p>Self-attention 的 Q、K、V 都投影自同一组 hidden states；cross-attention 的 Q 来自当前序列，K、V 来自另一组上下文。后续 score、softmax 和 Value 加权算法相同。</p></details><details><summary>4. 8 个动作 queries 读取 196 个视觉 tokens，score matrix 是什么形状？</summary><p>$Q$ 为 $8\times d_k$，$K^\top$ 为 $d_k\times196$，所以 score matrix 为 $8\times196$。</p></details><details><summary>5. 为什么 self-attention 中 Q、K、V 不一定相等？</summary><p>它们虽然都来自同一个 $X$，但分别乘以可训练的 $W_Q$、$W_K$、$W_V$，承担匹配问题、匹配索引和被搬运内容三种角色。</p></details><details><summary>6. 长度为 4 的 causal attention 中，位置 2 能读取哪些位置？</summary><p>能读取位置 0、1、2，不能读取位置 3。对应 mask 行为 $[0,0,0,-\infty]$，softmax 后最后一项权重为 0。</p></details><details><summary>7. 为什么训练能并行，而推理仍要逐 token？</summary><p>训练时整条正确序列已知，可一次计算所有位置，再用 causal mask 防止信息泄漏；推理时下一个 token 尚未产生，下一轮输入依赖本轮选择结果，只能依次生成。KV cache 只能减少重复计算，不能消除这个依赖。</p></details><details><summary>8. Attention 与 MLP 分别负责什么？</summary><p>Attention 跨 token 路由；MLP 在每个 token 内变换通道。</p></details><details><summary>9. $d_{model}=768$、12 heads，每头维度和缩放因子？</summary><p>$768/12=64$，缩放因子 $\sqrt{64}=8$。</p></details></section>
     <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/1706.03762">Attention Is All You Need</a>；<a href="https://arxiv.org/abs/2104.09864">RoFormer / RoPE</a>。下一篇比较 attention mask 与网络拓扑怎样产生 BERT、GPT、T5。</p></div>
     <nav class="article-series-nav"><a href="/notes/llm-cv/01-token-embedding-autoregressive/">← 上一篇：Token 与自回归</a><a href="/notes/llm-cv/03-gpt-bert-t5/">下一篇：GPT、BERT 与 T5 →</a></nav>
 </div></article></main>
