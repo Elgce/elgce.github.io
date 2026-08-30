@@ -16,19 +16,25 @@
     <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
     <article class="post-shell">
         <header class="post-header learning-header">
-            <span class="draft-status">04 / 14 · 初稿待学习</span>
+            <span class="draft-status">04 / 14 · 第一轮精讲</span>
             <p class="eyebrow">从架构到规模化</p>
             <h1>Scaling Laws、Chinchilla 与 MoE</h1>
             <p class="learning-header__lead">“把模型做大”不是一个完整策略。真正的问题是在固定算力下，参数、数据、训练步数和稀疏容量怎样配比。</p>
         </header>
         <div class="post-content learning-article">
             <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>Scaling law 描述可预测的平均趋势；Chinchilla 讨论固定训练算力下参数与数据的最优分配；MoE 则把“总参数容量”和“每 token 计算量”部分解耦。</strong></p></div>
+            <div class="learning-route"><span>小规模实验</span><b>→</b><span>拟合 loss 曲线</span><b>→</b><span>给定 compute</span><b>→</b><span>分配 N 与 D</span><b>→</b><span>选择 dense / MoE</span><b>→</b><span>核算训练与推理成本</span></div>
+
+            <h2>0. 先把三个量放进同一张计算图</h2>
+            <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>模型容量</small><strong>参数 $N$</strong></div><span class="process-arrow">×</span><div class="process-step"><small>数据曝光</small><strong>tokens $D$</strong></div><span class="process-arrow">≈</span><div class="process-step"><small>训练预算</small><strong>$C\approx6ND$ FLOPs</strong></div><span class="process-arrow">→</span><div class="process-step"><small>观测结果</small><strong>validation loss</strong></div></div><figcaption>$6ND$ 是 dense decoder Transformer 训练量级的常用粗估，不是硬件实测公式；attention、embedding、稀疏结构和利用率都会改变常数。</figcaption></figure>
 
             <h2>1. Scaling law 在说什么？</h2>
             <p>早期大模型实验发现，在相当宽的区间里，测试 loss 随模型参数量、数据量或训练算力增加呈近似幂律下降。示意形式是：</p>
             <div class="equation">$$L(x)\approx L_\infty + A x^{-\alpha}$$</div>
             <p>$x$ 可以代表参数、数据或 compute；$alpha$ 决定收益下降速度。它的工程价值不是“越大越神奇”，而是：用较小实验拟合趋势，预测更大训练的 loss、判断哪个资源正成为瓶颈。</p>
             <p>幂律意味着边际收益递减：每降低同样一段 loss，往往需要成倍增加资源。Scaling 是可靠但昂贵的改进轴。</p>
+
+            <div class="numeric-example"><p class="numeric-example__title">例 1：手算一条幂律曲线</p><p>取玩具公式 $L(x)=1+4x^{-1/2}$：</p><table class="calculation-table"><thead><tr><th>$x$</th><th>$\sqrt{x}$</th><th>$4/\sqrt{x}$</th><th>$L$</th></tr></thead><tbody><tr><td>1</td><td>1</td><td>4</td><td>5</td></tr><tr><td>4</td><td>2</td><td>2</td><td>3</td></tr><tr><td>16</td><td>4</td><td>1</td><td>2</td></tr><tr><td>64</td><td>8</td><td>0.5</td><td>1.5</td></tr></tbody></table><p>资源每扩大 4 倍，超过不可约下限 $L_\infty=1$ 的那部分只减半，这就是边际收益递减。</p></div>
 
             <h2>2. 参数、token 与 compute 不是同一个量</h2>
             <ul>
@@ -38,14 +44,20 @@
             </ul>
             <p>固定 $C$ 时，把所有预算花在更大的 $N$，就只能训练更少 token；反之，模型太小而重复看极多数据也可能浪费容量。Compute-optimal training 要找的是两者平衡点。</p>
 
+            <div class="numeric-example"><p class="numeric-example__title">例 2：固定 $6ND=6\times10^{18}$ FLOPs 的三种分配</p><table class="calculation-table"><thead><tr><th>参数 $N$</th><th>tokens $D=C/(6N)$</th><th>tokens / 参数</th></tr></thead><tbody><tr><td>1B</td><td>1T</td><td>1000</td></tr><tr><td>10B</td><td>100B</td><td>10</td></tr><tr><td>100B</td><td>10B</td><td>0.1</td></tr></tbody></table><p>三行 compute 相同，却分别可能受容量、数据或严重欠训练限制。Compute budget 本身不告诉你怎样分配最好。</p></div>
+
             <h2>3. Chinchilla 修正了什么直觉？</h2>
             <p>Chinchilla 工作重新估计了固定 compute 下的最优配比，结论是当时许多大模型相对“参数太多、训练数据太少”。论文用约 70B 参数、1.4T token 训练的 Chinchilla，与约 280B 参数、约 300B token 的 Gopher 对比：更小但训练更充分的模型在多项任务上更强，同时推理成本更低。</p>
             <p>常被记成的粗略口诀是“每个参数约对应 20 个训练 token”，但不能把它当自然常数。Tokenizer、数据质量、架构、optimizer、重复 epoch、目标 domain 和是否考虑推理成本，都会改变最佳点。</p>
             <div class="concept-callout"><strong>正确读法：</strong><p>Chinchilla 的核心不是 20 这个数字，而是<strong>比较模型时必须同时问它用了多少有效数据、训练了多久，而不能只看参数量</strong>。</p></div>
 
+            <div class="numeric-example"><p class="numeric-example__title">例 3：用“20 tokens / 参数”做量级检查</p><p>若只作粗略心算，7B 模型对应 $20\times7\text{B}=140\text{B}$ tokens；70B 对应 1.4T tokens。若 70B 只训练 300B tokens，则约 $300/70=4.3$ tokens/参数，明显低于这个历史估计。</p><p>这只能诊断数量级，不能替代针对当前架构、数据与推理预算的 scaling 实验。</p></div>
+
             <h2>4. 数据质量为什么能改变 scaling？</h2>
             <p>token 数只计算数量，不代表信息量。重复网页、模板文本、低质量自动内容和错误标签会降低每个 token 的训练价值。数据去重、质量过滤、领域配比和 curriculum 会改变 loss 曲线。</p>
             <p>高质量数据有限时，重复训练也不是无限有效：模型可能记忆样本，新的梯度信息逐渐减少。现实中的最优方案因此是“规模 + 数据治理 + 训练稳定性”，而不是单一公式。</p>
+
+            <div class="numeric-example"><p class="numeric-example__title">例 4：raw tokens 不等于有效 tokens</p><p>抓取 100B tokens，其中 30% 是近重复，过滤再丢掉 10% 低质量内容。若两步集合近似独立，剩余约为：</p><div class="equation">$$100\text{B}\times(1-0.30)\times(1-0.10)=63\text{B tokens}$$</div><p>报告“抓了 100B”与“训练用了 63B 去重后 token”是两件事；重复多个 epoch 也不会自动创造新信息。</p></div>
 
             <h2>5. MoE 怎样扩大容量而不同比增加计算？</h2>
             <p>Dense MLP 对每个 token 都激活同一组参数。Mixture of Experts 把某些层换成多个 expert，并用 router 为每个 token 选择 top-$k$：</p>
@@ -61,15 +73,21 @@
             </ul>
             <p>所以 MoE 主要改善“模型容量 / 计算量”的比值，不等于训练部署自动更简单。</p>
 
+            <div class="numeric-example"><p class="numeric-example__title">例 5：total parameters 与 active parameters</p><p>某层有 8 个 100M 参数 expert，另有 200M 共享参数，router 对每 token 选 top-2：</p><div class="calculation-stack"><p>总参数：$8\times100\text{M}+200\text{M}=1.0\text{B}$。</p><p>每 token 激活：$2\times100\text{M}+200\text{M}=400\text{M}$。</p><p>若 1,000 个 token 完全均匀，top-2 共产生 2,000 次 expert 分派，平均每 expert 250 tokens。</p></div><p>若一个 expert 收到 700 次而容量只有 300，就会拥塞；这正是 load-balancing loss 与 capacity factor 要处理的问题。</p></div>
+
             <h2>6. Emergence 与 scaling law 冲突吗？</h2>
             <p>连续的平均 loss 可以平滑下降，而某个离散 benchmark 的准确率突然越过阈值。例如模型一直提高正确答案概率，但只有当正确项成为 top-1 时，accuracy 才从 0 跳到 1。提示格式、评分方式和任务阈值都可能制造“突然出现”的外观。</p>
             <p>这不排除真正的组合能力变化，但看到 emergent claim 时，应先检查底层连续指标、基线、样本量和评测函数。</p>
 
+            <div class="numeric-example"><p class="numeric-example__title">例 6：连续概率怎样产生突然的 accuracy</p><p>四个选项中，正确项概率从 0.28 增至 0.31；最强错误项从 0.30 降至 0.29。Loss 从 $-\ln0.28=1.273$ 平滑降到 $-\ln0.31=1.171$，但 top-1 accuracy 会在正确项越过 0.29 的那一刻从 0 变成 1。</p></div>
+
             <section class="learning-check">
-                <h3>自测</h3>
+                <h3>自测：先算后展开</h3>
                 <details><summary>1. 固定 compute 时为什么不能只增大参数？</summary><p>参数越大，每个 token 计算越贵，会压缩可训练 token 数；模型可能容量充足却没有被足够数据训练。</p></details>
                 <details><summary>2. Chinchilla 最值得记住的结论是什么？</summary><p>模型大小必须与训练数据量共同优化；参数少但训练充分的模型可能优于参数更大但数据不足的模型。</p></details>
                 <details><summary>3. MoE 的 total parameters 和 active parameters 有何区别？</summary><p>Total parameters 包含所有 expert；active parameters 只计算某个 token 实际经过的 top-k expert 和共享层。</p></details>
+                <details><summary>4. 13B 参数按 20 tokens/参数粗估，需要多少 token？</summary><p>$13\text{B}\times20=260\text{B}$ tokens。</p></details>
+                <details><summary>5. 模型和数据都扩大 2 倍，$6ND$ 粗估怎样变化？</summary><p>$6(2N)(2D)=4\times6ND$，约 4 倍 compute。</p></details>
             </section>
 
             <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2001.08361">Scaling Laws for Neural Language Models</a>；<a href="https://arxiv.org/abs/2203.15556">Training Compute-Optimal Large Language Models</a>；<a href="https://arxiv.org/abs/2101.03961">Switch Transformers</a>。</p></div>
