@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 ResNet residual connection、ViT patch token 与 Swin shifted window。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | ResNet、ViT 与 Swin</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+    <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 14 · 初稿待学习</span><p class="eyebrow">视觉骨架</p><h1>ResNet、ViT 与 Swin</h1><p class="learning-header__lead">视觉骨架的变化不是“卷积过时了”，而是局部先验、全局交互、数据规模和计算成本之间不断重新取舍。</p></header>
+    <div class="post-content learning-article">
+        <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>ResNet 让深网络学习“在输入上改多少”；ViT 把图片变成 patch token 后做全局 attention；Swin 又加入局部窗口和层级结构，让 Transformer 更适合高分辨率 dense vision。</strong></p></div>
+
+        <h2>1. CNN 带着哪些视觉先验？</h2>
+        <p>卷积核在整张图上共享参数，只看局部邻域。这自带两个重要 inductive bias：</p>
+        <ul><li><strong>局部性</strong>：相邻像素通常比远处像素关系更直接。</li><li><strong>平移等变性</strong>：输入平移时，feature map 也相应平移。</li></ul>
+        <p>多层卷积逐步扩大 receptive field，并通过下采样形成从边缘、纹理到部件、对象的层级表示。这些先验让 CNN 在数据不特别大时也很有效。</p>
+
+        <h2>2. ResNet：为什么“学习残差”更容易？</h2>
+        <p>深 plain network 即使有 BatchNorm，也出现 degradation problem：增加层数后，训练误差反而更高。关键不是新层表达能力不足——额外层至少可以学 identity——而是优化器很难让一串非线性层精确学成 identity。</p>
+        <p>Residual block 把目标映射写成：</p>
+        <div class="equation">$$y=x+F(x;\theta)$$</div>
+        <p>如果这几层暂时不需要改变输入，只要把 $F(x)$ 学到接近 0。反向传播也有一条 identity 路径：</p>
+        <div class="equation">$$\frac{\partial y}{\partial x}=I+\frac{\partial F}{\partial x}$$</div>
+        <p>这不保证梯度永不消失或爆炸，但给信息和梯度提供了更直接的通路，使数十到数百层网络更易优化。Residual connection 后来成为 Transformer、扩散模型等深网络的基础部件。</p>
+
+        <h2>3. ViT：怎样把图片变成 token？</h2>
+        <p>对 $H\times W\times C$ 图片，用 $P\times P$ 不重叠窗口切块，可得到：</p>
+        <div class="equation">$$N=\frac{HW}{P^2}$$</div>
+        <p>个 patch。每个 patch 展平后经线性层投影成 $d$ 维 token，再加入位置 embedding。分类版 ViT 常在开头加入可学习的 <code>[CLS]</code> token，最终用它的 hidden state 分类。</p>
+        <pre><code>image 224×224
+  → 16×16 patches
+  → 14×14 = 196 visual tokens
+  → position embedding
+  → Transformer encoder
+  → classifier</code></pre>
+        <p>ViT 的全局 self-attention 让任意 patch 一层内交流，但弱化了 CNN 的局部和尺度先验。原论文的重要结论不是“小数据上 Transformer 天然更强”，而是<strong>在大规模预训练后，较少视觉先验的模型能学出强表示并有效迁移</strong>。</p>
+
+        <h2>4. Patch size 是精度与成本旋钮</h2>
+        <p>patch 越小，空间细节越多，但 token 数按 $1/P^2$ 增长，而标准 attention score 按 $N^2$ 增长。把 patch 从 16 减到 8，token 数约变 4 倍，attention 矩阵约变 16 倍。</p>
+        <p>所以高分辨率检测与分割不能只把分类 ViT 原样放大；需要窗口、稀疏 attention、层级 feature map 或其他高效机制。</p>
+
+        <h2>5. Swin：为什么重新引入局部与层级？</h2>
+        <p>Swin 把 attention 限制在固定大小的局部 window 内。若 window 大小固定，计算量对图像像素数近似线性增长。问题是不同 window 之间无法交流，因此相邻 block 把窗口平移半格：</p>
+        <pre><code>Block A: [window][window][window]
+Block B:    [ shifted windows ]</code></pre>
+        <p>Shifted windows 让上一层不同窗口中的 token 在下一层相遇。Swin 还通过 patch merging 逐阶段降低分辨率、提高通道数，形成类似 CNN/FPN 的层级 feature maps，便于 detection 和 segmentation。</p>
+
+        <h2>6. 三者的真正关系</h2>
+        <table><thead><tr><th>骨架</th><th>主要先验</th><th>全局交互</th><th>多尺度输出</th></tr></thead><tbody>
+            <tr><td>ResNet</td><td>强局部性、共享卷积</td><td>靠深层 receptive field</td><td>天然分阶段</td></tr>
+            <tr><td>ViT</td><td>较弱，patch + position</td><td>每层全局 attention</td><td>原始版本较单一</td></tr>
+            <tr><td>Swin</td><td>窗口局部性</td><td>靠 shifted window 跨区传播</td><td>天然分阶段</td></tr>
+        </tbody></table>
+        <div class="concept-callout"><strong>常见误解：</strong><p>ViT 没有“消灭 CNN”。视觉系统常把卷积、attention、层级表示混合使用；选择取决于数据规模、分辨率、延迟和任务输出。</p></div>
+
+        <section class="learning-check"><h3>自测</h3>
+            <details><summary>1. Residual block 为什么比直接学 $H(x)$ 容易？</summary><p>它改为学习 $F(x)=H(x)-x$；若理想映射接近 identity，残差只需接近零，同时 identity shortcut 提供直接信息和梯度通路。</p></details>
+            <details><summary>2. ViT patch 变小为什么很贵？</summary><p>patch 边长减半会使 token 数约四倍，而全局 attention 矩阵大小约增加十六倍。</p></details>
+            <details><summary>3. Swin 的 shifted window 解决什么？</summary><p>固定窗口降低计算，但隔离窗口；交替平移窗口使跨窗口 token 在后续 block 中交换信息。</p></details>
+        </section>
+        <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/1512.03385">ResNet</a>；<a href="https://arxiv.org/abs/2010.11929">Vision Transformer</a>；<a href="https://arxiv.org/abs/2103.14030">Swin Transformer</a>。</p></div>
+        <nav class="article-series-nav"><a href="/notes/llm-cv/04-scaling-laws-chinchilla/">← 上一篇：Scaling Laws</a><a href="/notes/llm-cv/06-self-supervised-vision/">下一篇：自监督视觉学习 →</a></nav>
+    </div></article>
+</main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

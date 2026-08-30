@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 Chain-of-Thought、自一致性、verifier search 与 test-time compute。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | Chain-of-Thought 与 Test-time Compute</title>
+</head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+    <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">12 / 14 · 初稿待学习</span><p class="eyebrow">推理时扩展</p><h1>Chain-of-Thought 与 Test-time Compute</h1><p class="learning-header__lead">模型参数冻结后，仍可以用更多生成 token、更多候选、搜索、验证器或工具增加解题计算；这些方法的收益和含义并不相同。</p></header>
+    <div class="post-content learning-article">
+        <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>CoT 给模型一个串行“草稿纸”；self-consistency 用多个推理样本投票；verifier-guided search 用额外计算挑选或扩展更有希望的路径。Test-time compute 是这些预算的总称。</strong></p></div>
+
+        <h2>1. 为什么中间 token 可能帮助计算？</h2>
+        <p>标准 decoder 每生成一个 token，就多执行一次完整网络前向，并把新 hidden state 写入上下文。若要求直接输出复杂问题的最终答案，模型只能把所有中间变换压在有限层深里；允许生成中间步骤，相当于把计算展开到时间维。</p>
+        <pre><code>question → answer
+
+question → intermediate step 1
+         → intermediate step 2
+         → check / revise
+         → answer</code></pre>
+        <p>Chain-of-Thought prompting 通过示例或指令诱导这种中间文本。它尤其帮助多步算术、符号推理和组合任务，但简单事实题可能只增加延迟和错误机会。</p>
+
+        <h2>2. CoT 是推理过程的真实解释吗？</h2>
+        <p>不一定。可见 rationale 是模型生成的文本，可能确实参与后续 token 条件，也可能事后合理化、遗漏内部线索或受 prompt 风格影响。判断 faithfulness 需要干预中间步骤、检查答案是否相应变化，而不能只看文字是否流畅。</p>
+        <p>因此 CoT 可以是<strong>计算工作区</strong>，却不能自动当成神经网络决策的完整因果解释。</p>
+
+        <h2>3. Self-consistency：为什么多采样有用？</h2>
+        <p>同一问题用 temperature 采样多条不同 CoT，再对最终答案多数投票。若每条路径错误不是完全相关，多样采样可让正确答案汇聚：</p>
+        <pre><code>path A → 42
+path B → 40
+path C → 42
+path D → 37
+path E → 42
+majority → 42</code></pre>
+        <p>它增加的是“横向”计算：并行尝试多个路径；更长单条 CoT 是“纵向”计算。若模型对同一种错误高度自信，多数投票也会稳定地选错。</p>
+
+        <h2>4. Pass@k、majority vote 和 verifier selection</h2>
+        <table><thead><tr><th>方法</th><th>需要什么</th><th>回答的问题</th></tr></thead><tbody>
+            <tr><td>pass@k</td><td>生成 $k$ 个 + 真值 checker</td><td>至少一个候选正确的概率</td></tr>
+            <tr><td>majority vote</td><td>能规范化最终答案</td><td>哪个答案被最多独立路径支持</td></tr>
+            <tr><td>verifier/reranker</td><td>能给候选打质量分</td><td>哪个候选最值得选</td></tr>
+        </tbody></table>
+        <p>Pass@k 是能力上界式指标，不代表系统知道哪个候选正确；真正部署需要 verifier、执行测试或一致性规则完成选择。</p>
+
+        <h2>5. Search 怎样使用更多预算？</h2>
+        <p>问题求解可以看作 partial reasoning states 的树。Beam search、best-of-N、Monte Carlo Tree Search 或 learned process verifier 可以扩展、评分和剪枝路径：</p>
+        <pre><code>state
+ ├─ candidate step A → score → expand
+ ├─ candidate step B → low score → prune
+ └─ candidate step C → score → expand</code></pre>
+        <p>搜索质量取决于 proposal model 能否产生多样好步骤，以及 verifier 能否在答案完成前判断 partial state。错误 verifier 会让更多计算更快地走向错误方向。</p>
+
+        <h2>6. Test-time compute 包含哪些旋钮？</h2>
+        <ul>
+            <li><strong>更多 reasoning tokens</strong>：单路径更长，允许分解与自检。</li>
+            <li><strong>更多 samples</strong>：best-of-N、自一致性或 pass@k。</li>
+            <li><strong>更强 search</strong>：在中间状态扩展与回溯。</li>
+            <li><strong>Verifier/judge</strong>：把生成与选择分开。</li>
+            <li><strong>外部工具</strong>：运行代码、搜索资料、调用计算器或环境。</li>
+        </ul>
+        <p>它们都增加推理时成本，但 scaling curve 不同。理想系统会按问题难度自适应预算，而不是每个请求都生成最长轨迹。</p>
+
+        <h2>7. 训练怎样改变 test-time behavior？</h2>
+        <p>CoT demonstration 可以让模型模仿人类写出的步骤；可验证奖励 RL 则直接奖励最终成功，让模型自己探索有用的长度、回溯和验证模式。后者可能产生更长推理，却也可能出现冗余循环、reward exploit 或不可读轨迹。</p>
+        <p>推理 token 增加不是能力提升的充分条件。必须同时看正确率、校准、延迟、token 成本，以及额外计算在难题上是否真正带来边际收益。</p>
+        <div class="concept-callout"><strong>常见误解：</strong><p>“模型想得更久”是工程比喻。我们能直接观测的是更多串行/并行前向计算和搜索；它是否对应人类式思考，需要更谨慎的机制证据。</p></div>
+
+        <section class="learning-check"><h3>自测</h3>
+            <details><summary>1. CoT 为什么可能增加模型可用计算？</summary><p>每个中间 token 都触发新的网络前向，并把结果加入上下文，使复杂映射能沿生成时间分多步展开。</p></details>
+            <details><summary>2. Self-consistency 与单纯拉长一个答案有何不同？</summary><p>Self-consistency 并行采样多条不同路径并聚合最终答案；拉长答案只增加单一路径的串行步骤。</p></details>
+            <details><summary>3. 为什么 pass@k 高不代表系统最终准确率高？</summary><p>它只说明候选集中至少有一个正确答案；如果没有可靠 checker，系统可能无法识别并返回它。</p></details>
+        </section>
+        <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2201.11903">Chain-of-Thought Prompting</a>；<a href="https://arxiv.org/abs/2203.11171">Self-Consistency</a>；<a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>。</p></div>
+        <nav class="article-series-nav"><a href="/notes/llm-cv/11-sft-rlhf-dpo-rlvr/">← 上一篇：后训练</a><a href="/notes/llm-cv/13-rag-tools-agents/">下一篇：RAG、Tools 与 Agent →</a></nav>
+    </div></article>
+</main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

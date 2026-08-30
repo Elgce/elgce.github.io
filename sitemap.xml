@@ -5,7 +5,49 @@
     <loc>https://www.qingweiben.com/notes/</loc>
     <lastmod>2026-08-29T00:00:00-07:00</lastmod>
   </url><url>
-    <loc>https://www.qingweiben.com/notes/llm-cv-core-techniques/</loc>
+    <loc>https://www.qingweiben.com/notes/llm-cv/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/01-token-embedding-autoregressive/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/02-attention-transformer/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/03-gpt-bert-t5/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/04-scaling-laws-chinchilla/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/05-resnet-vit-swin/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/06-self-supervised-vision/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/07-clip-multimodal/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/08-detection-segmentation/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/09-generative-models/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/10-nerf-3dgs-world-model/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/11-sft-rlhf-dpo-rlvr/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/12-cot-test-time-compute/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/13-rag-tools-agents/</loc>
+    <lastmod>2026-08-29T00:00:00-07:00</lastmod>
+  </url><url>
+    <loc>https://www.qingweiben.com/notes/llm-cv/14-efficient-training-serving/</loc>
     <lastmod>2026-08-29T00:00:00-07:00</lastmod>
   </url><url>
     <loc>https://www.qingweiben.com/notes/quaternion/</loc>

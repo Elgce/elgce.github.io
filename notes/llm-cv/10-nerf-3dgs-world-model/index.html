@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 NeRF、3D Gaussian Splatting 与 world model 的表示、渲染和预测。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | NeRF、3DGS 与 World Model</title>
+</head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+    <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">10 / 14 · 初稿待学习</span><p class="eyebrow">空间表示与未来预测</p><h1>NeRF、3DGS 与 World Model</h1><p class="learning-header__lead">NeRF 和 3DGS 解决“从这些相机看见的图片，怎样合成新视角”；world model 再把问题推进到“采取动作后，世界怎样变化”。</p></header>
+    <div class="post-content learning-article">
+        <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>NeRF 用神经网络隐式表示连续 radiance field，3DGS 用显式可优化高斯集合快速 rasterize；world model 则学习带时间与动作条件的状态转移，而不只是静态新视角渲染。</strong></p></div>
+
+        <h2>1. Novel view synthesis 的输入输出</h2>
+        <p>给定同一静态场景的多张图片及相机内外参，目标是在未拍摄的相机位姿合成图片。监督信号仍是 2D 像素，但不同视角共享同一个 3D 场景，因此正确模型必须建立跨视角一致表示。</p>
+        <p>常见假设包括：相机标定较准、场景在拍摄期间近似静态、视角覆盖足够，以及外观变化可由 view direction 建模。动态物体、曝光变化和稀疏视角会破坏这些假设。</p>
+
+        <h2>2. NeRF：坐标进去，密度和颜色出来</h2>
+        <p>NeRF 用 MLP 表示连续函数：</p>
+        <div class="equation">$$F_\theta(\mathbf x,\mathbf d)\rightarrow (\sigma,\mathbf c)$$</div>
+        <p>$\mathbf x$ 是 3D 位置，$\mathbf d$ 是观察方向；密度 $\sigma$ 通常只依赖位置，颜色 $\mathbf c$ 可依赖方向以表达高光。</p>
+        <p>对相机每条 ray，在多个深度采样点查询 MLP，再按体渲染累积：</p>
+        <div class="equation">$$C(\mathbf r)=\int T(t)\sigma(\mathbf r(t))\mathbf c(\mathbf r(t),\mathbf d)\,dt$$</div>
+        <p>$T(t)$ 表示 ray 到该点尚未被遮挡的透射率。渲染颜色与真实像素做 MSE，梯度穿过积分和 MLP，最终场景结构在无需直接 3D 标签的情况下被优化出来。</p>
+        <p>原始 NeRF 对坐标做高频 positional encoding，否则普通 MLP 更容易学习低频平滑函数。它的表示连续且画质好，但每个像素要沿 ray 多次查询网络，训练和渲染很慢。</p>
+
+        <h2>3. 3D Gaussian Splatting：显式 primitives</h2>
+        <p>3DGS 用大量各向异性 Gaussian 表示场景。每个 Gaussian 有中心、3D covariance/scale+rotation、opacity 和 view-dependent color coefficients。渲染时把 3D Gaussian 投影成屏幕上的 2D ellipse，按深度排序后 alpha composite。</p>
+        <pre><code>3D Gaussian set
+  → project to camera
+  → tile/bin visible splats
+  → depth-aware alpha blending
+  → image</code></pre>
+        <p>优化过程中可 densify 需要更多细节的区域，也可 prune 贡献小的 Gaussians。显式表示配合 GPU rasterization，使 3DGS 比原始 NeRF 更容易实时渲染。</p>
+
+        <h2>4. NeRF 与 3DGS 的核心取舍</h2>
+        <table><thead><tr><th></th><th>NeRF</th><th>3DGS</th></tr></thead><tbody>
+            <tr><td>表示</td><td>MLP 隐式连续函数</td><td>显式 Gaussian 集合</td></tr>
+            <tr><td>渲染</td><td>ray sampling + volume rendering</td><td>project + splat + alpha blend</td></tr>
+            <tr><td>速度</td><td>原始版本慢</td><td>适合实时 rasterization</td></tr>
+            <tr><td>存储/编辑</td><td>网络参数紧凑但难直接编辑</td><td>primitives 较直观，但数量和显存可很大</td></tr>
+        </tbody></table>
+        <p>二者从图像监督学出的首先是“足以重建视图的 radiance representation”，不自动等于干净 mesh、物理材质或可碰撞几何。Floaters、错误深度或 view-dependent tricks 仍可能渲染得看似正确。</p>
+
+        <h2>5. World model 多了哪一维？</h2>
+        <p>静态场景表示回答 $p(o\mid camera)$；world model 还要建模时间和动作：</p>
+        <div class="equation">$$p(s_{t+1},o_{t+1}\mid s_{\le t},o_{\le t},a_{\le t})$$</div>
+        <p>其中内部状态 $s_t$ 可以是显式物理状态、紧凑 latent、token，或直接高维视频表示。模型可预测：</p>
+        <ul><li><strong>像素未来</strong>：直观但计算贵，容易把容量花在纹理。</li><li><strong>latent future</strong>：压缩、便于长 rollout，但 latent 必须保留决策相关信息。</li><li><strong>状态/奖励</strong>：适合规划，却依赖可获得的状态定义和监督。</li></ul>
+
+        <h2>6. “会生成视频”就是 world model 吗？</h2>
+        <p>高质量视频生成说明模型掌握了大量视觉与运动统计，但用于控制还需要更严格条件：动作可控、跨长时域一致、对象恒常、几何与接触合理，并能表达不确定性。只生成看似真实的未来，不代表它能区分“我的动作造成什么变化”。</p>
+        <p>在 model-based control 中，可对候选动作 rollout，使用 reward/value 评分后选择；但模型误差会随 imagined horizon 累积，planner 也可能利用模型漏洞找到现实中无效的动作。</p>
+
+        <h2>7. 与机器人的连接</h2>
+        <p>机器人需要同时处理三种表示：空间几何决定“东西在哪里”，动力学决定“动作后会怎样”，策略决定“下一步做什么”。NeRF/3DGS 更靠近空间重建，world model 更靠近动力学预测；它们可共享视觉 encoder，但目标并不相同。</p>
+        <div class="concept-callout"><strong>常见误解：</strong><p>新视角渲染得逼真，不足以证明表示适合抓取或导航；控制关心的碰撞、尺度、遮挡后物体和接触状态可能并未被可靠恢复。</p></div>
+
+        <section class="learning-check"><h3>自测</h3>
+            <details><summary>1. NeRF 的 density 和 color 在体渲染中分别起什么作用？</summary><p>Density 决定沿 ray 各处的吸收/遮挡和权重，color 是该处从指定方向观察的辐射颜色；二者共同积分成像素。</p></details>
+            <details><summary>2. 3DGS 为什么能比原始 NeRF 快？</summary><p>它用显式 Gaussian 投影和 GPU rasterization，而不是每个像素沿 ray 多次运行 MLP。</p></details>
+            <details><summary>3. 一个用于控制的 world model 必须比视频生成多回答什么？</summary><p>它必须可靠建模动作条件下的未来与不确定性，使预测能支持规划，而不只生成视觉上合理的无条件视频。</p></details>
+        </section>
+        <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2003.08934">NeRF</a>；<a href="https://arxiv.org/abs/2308.04079">3D Gaussian Splatting</a>。</p></div>
+        <nav class="article-series-nav"><a href="/notes/llm-cv/09-generative-models/">← 上一篇：生成模型</a><a href="/notes/llm-cv/11-sft-rlhf-dpo-rlvr/">下一篇：SFT、RLHF、DPO 与 RLVR →</a></nav>
+    </div></article>
+</main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

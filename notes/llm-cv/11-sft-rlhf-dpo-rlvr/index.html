@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 SFT、reward model、PPO/RLHF、DPO 与可验证奖励 RLVR。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | SFT、RLHF、DPO 与 RLVR</title>
+</head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+    <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">11 / 14 · 初稿待学习</span><p class="eyebrow">后训练</p><h1>SFT、RLHF、DPO 与 RLVR</h1><p class="learning-header__lead">预训练回答“互联网文本后面通常是什么”；后训练才逐步把目标改成“用户希望助手怎样回应”或“什么答案能被可靠验证”。</p></header>
+    <div class="post-content learning-article">
+        <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>SFT 模仿示范答案，RLHF 学人类相对偏好再优化策略，DPO 直接用偏好对训练策略，RLVR 则用程序化可验证结果提供奖励。</strong></p></div>
+
+        <h2>1. 为什么预训练模型还不是助手？</h2>
+        <p>Base model 在海量文本上优化 next-token likelihood。看到“请解释量子力学”，训练分布里可能接着出现答案、评论、广告、另一段问题或网页模板。模型学会语言与知识，并不自动知道用户更喜欢简洁、诚实、有帮助且遵循格式的回答。</p>
+        <p>后训练不是简单“继续喂更多知识”，而是改变输出行为分布：哪些 prompt 应如何回应、哪些答案相对更好、在可验证任务上哪些策略能得到正确结果。</p>
+
+        <h2>2. SFT：模仿理想示范</h2>
+        <p>Supervised Fine-Tuning 数据通常是 $(x,y^*)$：prompt $x$ 和示范回答 $y^*$。训练仍用 teacher forcing cross-entropy，但通常只对回答 token 计算 loss：</p>
+        <div class="equation">$$\mathcal L_{SFT}=-\sum_t\log\pi_\theta(y_t^*\mid x,y_{&lt;t}^*)$$</div>
+        <p>SFT 教会对话格式、指令模式、工具调用 schema、回答风格和任务模板。它很稳定，但只学习数据中出现的动作；同一 prompt 有多个好答案时，单一示范也不能表达“哪个更好、好多少”。</p>
+        <p>高质量小数据往往比大量低质量模板更有用，因为 SFT 直接塑造模型输出分布。它也可能造成 capability regression，因此数据混合、学习率和保留通用数据很重要。</p>
+
+        <h2>3. RLHF 的三阶段 pipeline</h2>
+        <ol>
+            <li><strong>SFT policy</strong>：先让模型能按基本格式回答。</li>
+            <li><strong>Reward model</strong>：对同一 prompt 的多个回答做人类排序，训练标量评分 $r_\phi(x,y)$。</li>
+            <li><strong>RL policy optimization</strong>：从当前 policy 采样回答，最大化 reward，同时用 KL penalty 限制偏离 reference model。</li>
+        </ol>
+        <p>常见 pairwise reward model 假设 preferred answer $y_w$ 胜过 rejected $y_l$ 的概率为：</p>
+        <div class="equation">$$P(y_w\succ y_l\mid x)=\sigma(r_\phi(x,y_w)-r_\phi(x,y_l))$$</div>
+        <p>Policy objective 的概念形式：</p>
+        <div class="equation">$$\max_\pi\;\mathbb E_{y\sim\pi}[r_\phi(x,y)]-\beta D_{KL}(\pi\Vert\pi_{ref})$$</div>
+        <p>KL 项防止模型为了 reward model 的漏洞走得太远。PPO 是实现这类更新的常见算法，但 RLHF 不等于 PPO；反馈来源、reward 建模和 policy optimizer 都可替换。</p>
+
+        <h2>4. Reward hacking 从哪里来？</h2>
+        <p>Reward model 只是人类偏好的近似。如果训练数据里“更长、格式更完整”经常获胜，policy 可能学会冗长而非真正有帮助；若 judge 容易被特定措辞骗过，优化会放大这个漏洞。</p>
+        <p>所以 reward 变高不自动等于真实质量变高。需要 held-out human eval、多维指标、对抗测试、KL 控制和不断刷新数据分布。</p>
+
+        <h2>5. DPO：为什么可以绕过显式 RL loop？</h2>
+        <p>DPO 从同样的 preference pairs $(x,y_w,y_l)$ 出发，利用 KL-regularized RL 最优策略与 reward 的关系，把 reward 差写成 policy/reference log-probability 差，直接做一个二分类式 loss：</p>
+        <div class="equation">$$-\log\sigma\left(\beta\left[\log\frac{\pi_\theta(y_w|x)}{\pi_{ref}(y_w|x)}-\log\frac{\pi_\theta(y_l|x)}{\pi_{ref}(y_l|x)}\right]\right)$$</div>
+        <p>直觉是：相对 reference，提高 preferred response 的概率，同时相对降低 rejected response。它不需要单独训练 reward model，也不需要训练时在线 rollout + PPO，因此简单稳定。</p>
+        <p>但 DPO 没有消除偏好数据问题：pair 的覆盖、噪声、长度偏好和 reference quality 仍决定上限。它也不是所有 RL 问题的替代品；需要探索、长 horizon 或环境交互时，on-policy RL 仍有价值。</p>
+
+        <h2>6. RLVR：当答案能由程序验证</h2>
+        <p>数学最终答案、代码测试、定理检查器、格式约束等任务有可程序化 reward。Reinforcement Learning with Verifiable Rewards 可以从模型采样多条轨迹，按是否通过 verifier 给 reward，再提高成功轨迹概率。</p>
+        <p>它的优势是反馈规模大、比主观人类评分一致，且允许模型探索人类没有写出的推理路径。DeepSeek-R1 等工作展示了在数学、代码等可验证任务上，大规模 RL 能强化自检、回溯和更长推理模式。</p>
+        <p>边界同样明显：</p>
+        <ul><li>最终答案正确不保证中间理由真实或最简。</li><li>稀疏 reward 可能难学习，需要合适采样、advantage 与 curriculum。</li><li>Verifier 有漏洞时模型会 exploit。</li><li>开放式写作、价值判断和真实世界任务通常没有完美程序验证器。</li></ul>
+
+        <h2>7. 四者不是互斥选择</h2>
+        <pre><code>base pretraining
+  → SFT（格式和基本行为）
+  → preference optimization（RLHF / DPO）
+  → verifiable-task RL（RLVR）
+  → targeted safety / tool / domain tuning</code></pre>
+        <p>真实 pipeline 常反复混合这些阶段。核心问题不是方法名，而是：<strong>监督信号从哪里来、它评价输出的哪一部分、模型能否利用或欺骗它</strong>。</p>
+
+        <section class="learning-check"><h3>自测</h3>
+            <details><summary>1. SFT 与 preference learning 的标签有何不同？</summary><p>SFT 给一个应模仿的目标回答；preference learning 给同一 prompt 下两个或多个回答的相对排序。</p></details>
+            <details><summary>2. RLHF 为什么需要 KL penalty？</summary><p>限制 policy 为追逐不完美 reward model 而远离可靠 reference 分布，降低 reward hacking 和语言退化。</p></details>
+            <details><summary>3. DPO 简化了哪些组件，又没有解决什么？</summary><p>它省去显式 reward model 和 PPO rollout loop；但偏好数据偏差、reference 选择与离线覆盖问题仍存在。</p></details>
+            <details><summary>4. RLVR 最适合哪类任务？</summary><p>结果能由可靠程序检查的任务，例如数学答案、代码测试、形式证明和严格格式。</p></details>
+        </section>
+        <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2203.02155">InstructGPT / RLHF</a>；<a href="https://arxiv.org/abs/2305.18290">DPO</a>；<a href="https://arxiv.org/abs/2501.12948">DeepSeek-R1</a>。</p></div>
+        <nav class="article-series-nav"><a href="/notes/llm-cv/10-nerf-3dgs-world-model/">← 上一篇：3D 与 World Model</a><a href="/notes/llm-cv/12-cot-test-time-compute/">下一篇：CoT 与 Test-time Compute →</a></nav>
+    </div></article>
+</main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

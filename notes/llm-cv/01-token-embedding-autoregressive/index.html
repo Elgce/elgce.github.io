@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 token、embedding、next-token prediction、teacher forcing 与自回归生成。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
+        integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <script>
+        window.MathJax = {tex: {inlineMath: [['$', '$']], displayMath: [['$$', '$$']]}};
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | Token、Embedding 与自回归训练</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+    <nav class="home-nav blog-topbar" aria-label="Learning note navigation">
+        <a class="home-mark" href="/">Qingwei Ben</a>
+        <div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div>
+    </nav>
+
+    <article class="post-shell">
+        <header class="post-header learning-header">
+            <span class="draft-status">01 / 14 · 初稿待学习</span>
+            <p class="eyebrow">序列模型的地基</p>
+            <h1>Token、Embedding 与自回归训练</h1>
+            <p class="learning-header__lead">模型怎样把原始信息变成数字，又怎样只靠“预测下一步”从海量无标签数据里学到结构。</p>
+        </header>
+
+        <div class="post-content learning-article">
+            <div class="key-takeaway">
+                <h3>先记住一句话</h3>
+                <p><strong>Token 决定模型处理的离散单位，embedding 把单位变成可学习向量，自回归目标则把一条序列变成许多“根据过去预测下一步”的监督题。</strong></p>
+            </div>
+
+            <h2>1. 为什么先要 tokenization？</h2>
+            <p>神经网络只接收固定形状的数字张量，不能直接计算字符串、图片或机器人动作。第一步因此不是“理解”，而是把原始对象表示成一串有限词表中的离散单元。</p>
+            <pre><code>"I love robotics"
+        ↓ tokenizer（仅为示意）
+["I", " love", " robot", "ics"]
+        ↓ vocabulary lookup
+[40, 1842, 9201, 1127]</code></pre>
+            <p>token 不等于单词。它可以是字符、子词、字节、图像 patch、视觉 code，或者离散动作。Tokenizer 做的是一种工程折中：</p>
+            <ul>
+                <li><strong>词表很大</strong>：常见词可能只占一个 token，但 embedding/output 层更大，稀有词也难覆盖。</li>
+                <li><strong>词表很小</strong>：几乎不会遇到未知词，但每段文本会变长，attention 和生成成本随之上升。</li>
+                <li><strong>子词或字节</strong>：在覆盖率、序列长度和多语言能力之间折中，因此成为常见方案。</li>
+            </ul>
+            <div class="concept-callout">
+                <strong>不要误读 token ID：</strong>
+                <p>ID 只是类别编号。编号 100 不比编号 10 “大十倍”，两个 ID 数字接近也不代表语义接近。</p>
+            </div>
+
+            <h2>2. Embedding：把类别变成坐标</h2>
+            <p>设词表大小为 $V$、模型宽度为 $d$。模型维护一个可训练矩阵 $E\in\mathbb{R}^{V\times d}$。token $i$ 的输入向量就是第 $i$ 行：</p>
+            <div class="equation">$$\mathbf e_i = E[i]$$</div>
+            <p>这等价于 one-hot 向量乘以矩阵，却不用真的构造巨大 one-hot。训练开始时这些向量通常接近随机；为了降低预测损失，梯度会同时更新 embedding 和网络其他参数。</p>
+            <p>要区分两种经常都被叫作“表示”的东西：</p>
+            <div class="compare-grid">
+                <div class="compare-card">
+                    <h3>输入 embedding</h3>
+                    <p>只由 token ID 查表得到。同一个 token 每次进入模型时起点相同。</p>
+                </div>
+                <div class="compare-card">
+                    <h3>上下文 hidden state</h3>
+                    <p>经过多层 attention 后形成。同一个 token 在不同句子中可以完全不同。</p>
+                </div>
+            </div>
+            <p>所以“embedding 是词义”只是粗略直觉。真正参与下一 token 预测的是当前位置的上下文 hidden state。</p>
+
+            <h2>3. 自回归到底是什么意思？</h2>
+            <p>自回归不是某个网络结构，而是一种概率分解。概率链式法则给出：</p>
+            <div class="equation">$$p(x_{1:T})=\prod_{t=1}^{T}p(x_t\mid x_{&lt;t})$$</div>
+            <p>模型只需要学会每一步的条件分布 $p(x_t\mid x_{&lt;t})$，这些分布相乘便定义了整个序列的概率。RNN、Transformer 或其他网络都可以参数化它。</p>
+            <p>例如序列 <code>I love robotics &lt;EOS&gt;</code> 会产生多道训练题：</p>
+            <pre><code>看到：&lt;BOS&gt;                 → 预测：I
+看到：&lt;BOS&gt; I               → 预测：love
+看到：&lt;BOS&gt; I love          → 预测：robotics
+看到：&lt;BOS&gt; I love robotics → 预测：&lt;EOS&gt;</code></pre>
+            <p>这就是 next-token prediction。它的监督标签直接来自原始序列本身，因此不需要人工逐条标注任务答案，通常被称为自监督学习。</p>
+
+            <h2>4. Teacher forcing、causal mask 与 loss</h2>
+            <p>训练时整条正确序列已经存在。我们把真实的历史 token 提供给每个位置，这叫 <strong>teacher forcing</strong>。Transformer 再用 causal mask 禁止位置 $t$ 看见未来 $t+1:T$，便可以一次前向并行计算所有预测题。</p>
+            <p>每个位置输出整个词表上的 logits。softmax 把它变成概率，正确 token 的交叉熵为：</p>
+            <div class="equation">$$\mathcal L_t=-\log p_\theta(x_t\mid x_{&lt;t})$$</div>
+            <p>对所有有效位置求和或平均，就是 sequence loss。最小化它等价于最大化训练序列在模型下的 likelihood：模型不断提高真实后续的概率。</p>
+            <div class="compare-grid">
+                <div class="compare-card">
+                    <h3>训练</h3>
+                    <p>正确历史全部已知；各位置可并行预测；早期错误不会改写本样本后面的输入。</p>
+                </div>
+                <div class="compare-card">
+                    <h3>生成</h3>
+                    <p>下一 token 尚不存在；必须把自己的输出接回输入；前面的错误会改变后续条件。</p>
+                </div>
+            </div>
+            <p>训练和自由生成条件不完全相同，常被称为 exposure bias 或 train–inference mismatch。但这不代表 teacher forcing 是错误方法；它让大规模训练高效而稳定，代价是推理时必须处理自身输出造成的分布偏移。</p>
+
+            <h2>5. 为什么一个简单目标会学到很多能力？</h2>
+            <p>要准确预测文本后续，模型经常必须利用语法、语义、事实、篇章结构和任务格式。数据规模扩大后，不同能力共享一套表示和参数，于是 next-token objective 成为一个通用训练接口。</p>
+            <p>但它不保证模型学到“真实世界的正确因果模型”。训练目标只要求拟合数据分布：数据里的偏见、错误和表面捷径也会被学习。指令遵循、事实可靠性和安全性通常还需要后训练或外部工具。</p>
+
+            <h2>6. 放到机器人动作模型里</h2>
+            <p>如果观测 $o$ 包含图像、语言指令和本体状态，动作序列也可以自回归分解：</p>
+            <div class="equation">$$p(a_{1:T}\mid o)=\prod_{t=1}^{T}p(a_t\mid o,a_{&lt;t})$$</div>
+            <p>与文本相同的是“过去条件下预测下一步”；不同的是动作可能是连续值，而且控制系统要求低延迟、平滑、闭环纠错。因此机器人模型可能预测离散 action token，也可能生成连续 action chunk，或者使用 diffusion / flow matching 并行产生一段动作。</p>
+            <div class="concept-callout">
+                <strong>重要边界：</strong>
+                <p>自回归描述的是概率分解和生成顺序，不等于语言，不等于离散输出，也不等于 Transformer。</p>
+            </div>
+
+            <section class="learning-check">
+                <h3>自测</h3>
+                <details><summary>1. 为什么不能把 token ID 当作有大小关系的连续数值？</summary><p>它只是类别编号；数值距离不携带语义。Embedding lookup 为每个类别提供独立的可学习向量。</p></details>
+                <details><summary>2. 自回归训练为什么能并行，推理通常为什么不能？</summary><p>训练时正确序列完整可见，causal mask 能让所有位置同时预测下一 token；推理时第 $t+1$ 步输入依赖第 $t$ 步刚生成的结果。</p></details>
+                <details><summary>3. Cross-entropy 与 maximum likelihood 的关系是什么？</summary><p>逐 token 的交叉熵是正确 token 条件概率的负对数；求和即序列的负 log-likelihood，所以最小化前者等价于最大化后者。</p></details>
+            </section>
+
+            <div class="source-list">
+                <h3>原始资料</h3>
+                <p><a href="https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf">Generative Pre-Training</a> 展示了用语言建模预训练，再迁移到多个下游任务的路线。</p>
+            </div>
+            <nav class="article-series-nav"><a href="/notes/llm-cv/">← 系列目录</a><a href="/notes/llm-cv/02-attention-transformer/">下一篇：Attention 与 Transformer →</a></nav>
+        </div>
+    </article>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body>
+</html>

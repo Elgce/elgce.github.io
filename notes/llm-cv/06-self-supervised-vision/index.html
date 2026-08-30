@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 SimCLR、MoCo、DINO、MAE 与自监督视觉学习。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | 自监督视觉学习</title>
+</head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+    <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">06 / 14 · 初稿待学习</span><p class="eyebrow">从标签到数据本身</p><h1>SimCLR、MoCo、DINO 与 MAE</h1><p class="learning-header__lead">没有人工类别标签时，模型仍可从“一张图的不同视图”和“缺失内容”中制造监督信号。</p></header>
+    <div class="post-content learning-article">
+        <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>对比学习定义“哪些视图应相似”，自蒸馏让 teacher 提供稳定目标，MAE 则要求从少量可见 patch 恢复缺失图像；它们都在设计不依赖人工标签的预测题。</strong></p></div>
+
+        <h2>1. 自监督不等于没有监督</h2>
+        <p>监督信号不是人工类别，而是从数据结构自动产生。例如同一图片的两个增强视图应该表达同一对象，遮住的 patch 应该能由可见区域恢复。模型仍然有 loss 和 target，只是 target 不由人逐张标注。</p>
+        <p>真正困难的是：什么信息应该保持不变，什么信息必须保留？如果颜色对任务重要，却总用强 color jitter 强迫模型忽略颜色，学到的 invariance 可能伤害下游任务。</p>
+
+        <h2>2. SimCLR：同图拉近，异图推远</h2>
+        <p>对一批图片，每张随机增强两次。Encoder $f$ 得表示 $h$，projection head $g$ 得对比空间向量 $z$。同一原图的两视图是 positive pair，其他视图作 negatives。</p>
+        <p>简化的 InfoNCE loss 是：</p>
+        <div class="equation">$$\mathcal L_i=-\log\frac{\exp(\operatorname{sim}(z_i,z_j)/\tau)}{\sum_{k\ne i}\exp(\operatorname{sim}(z_i,z_k)/\tau)}$$</div>
+        <p>$\tau$ 是 temperature。它控制 softmax 分布的尖锐程度。SimCLR 说明强数据增强、大 batch、非线性 projection head 对效果非常关键。</p>
+        <p>Projection head 的一个直觉是：对比 loss 可以在 $z$ 空间丢弃增强变化，而 encoder 表示 $h$ 保留更多下游可用信息；下游通常丢掉 $g$。</p>
+
+        <h2>3. MoCo：用队列获得大量一致 negatives</h2>
+        <p>对比学习需要许多 negatives，但巨大 batch 显存昂贵。MoCo 维护一个历史 key 队列，让当前 query 与更多 key 对比。若 key encoder 每步随梯度骤变，队列里的旧 key 会来自不一致的表示空间，因此 MoCo 用 momentum update：</p>
+        <div class="equation">$$\theta_k\leftarrow m\theta_k+(1-m)\theta_q$$</div>
+        <p>key encoder 缓慢变化，使字典在较长时间内保持一致。核心不是“多了一个缓存”，而是把<strong>字典大小</strong>与<strong>当前 mini-batch 大小</strong>解耦。</p>
+
+        <h2>4. 为什么会 representation collapse？</h2>
+        <p>如果目标只要求同一图片的两个视图相等，所有图片都输出同一个常量向量就能轻松满足，这叫 collapse。不同方法用不同机制避免：</p>
+        <ul>
+            <li>SimCLR/MoCo 用 negatives，要求不同图片可区分。</li>
+            <li>DINO 类方法用 teacher–student、centering、sharpening 等非对称与分布约束。</li>
+            <li>其他方法可用 stop-gradient、predictor、variance/covariance regularization。</li>
+        </ul>
+
+        <h2>5. DINO：没有人工标签的自蒸馏</h2>
+        <p>Student 看到某个 crop，拟合 teacher 对另一 crop 的输出分布。Teacher 不直接反向传播，而是 student 权重的 exponential moving average。Teacher 输出经过 centering 和 sharpening，避免所有样本输出完全相同或所有概率过度平均。</p>
+        <p>DINO 的重要观察是：ViT 在这种自监督目标下产生的 attention 和 patch features 会自然呈现对象区域与语义结构，虽然训练没有提供 segmentation mask。这说明预训练目标与架构结合后能产生密集视觉表示。</p>
+
+        <h2>6. MAE：遮大部分 patch，再重建</h2>
+        <p>Masked Autoencoder 随机遮住很高比例的 image patches。Encoder 只处理可见 token；轻量 decoder 接收 encoded visible tokens 和 mask tokens，重建缺失像素。</p>
+        <pre><code>image patches
+  → keep ~25%, mask ~75%
+  → heavy encoder processes visible patches only
+  → light decoder reconstructs missing patches</code></pre>
+        <p>图像像素高度冗余，遮得太少时任务过于简单；高 mask ratio 既迫使模型理解较大结构，又显著减少 encoder 训练计算。预训练后 decoder 丢弃，只保留 encoder 做下游任务。</p>
+
+        <h2>7. 四种方法如何选择？</h2>
+        <table><thead><tr><th>方法</th><th>训练题</th><th>关键防坍缩/效率机制</th></tr></thead><tbody>
+            <tr><td>SimCLR</td><td>同图视图相近、异图远离</td><td>batch negatives、增强、projection head</td></tr>
+            <tr><td>MoCo</td><td>同上</td><td>queue + momentum encoder</td></tr>
+            <tr><td>DINO</td><td>student 匹配 teacher 跨视图分布</td><td>EMA teacher、centering、sharpening</td></tr>
+            <tr><td>MAE</td><td>根据可见 patch 恢复缺失像素</td><td>高 mask ratio、非对称 encoder/decoder</td></tr>
+        </tbody></table>
+        <p>评价表示时也要区分 linear probe、full fine-tuning、few-shot 和 dense task transfer；同一个预训练模型在不同评测协议下排名可能不同。</p>
+
+        <section class="learning-check"><h3>自测</h3>
+            <details><summary>1. 自监督的“标签”从哪里来？</summary><p>由数据本身和人为定义的变换产生，例如同图不同增强是一对、遮掉的 patch 像素是重建目标。</p></details>
+            <details><summary>2. MoCo 为什么需要 momentum encoder？</summary><p>队列包含过去 batch 的 key；key encoder 缓慢变化能减少旧 key 与新 query 表示空间不一致。</p></details>
+            <details><summary>3. MAE 为什么遮住大部分 patch 反而合理？</summary><p>自然图像局部像素冗余很高，低遮挡容易靠邻域插值；高遮挡迫使模型利用更全局结构，同时 encoder 只处理少量可见 token。</p></details>
+        </section>
+        <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2002.05709">SimCLR</a>；<a href="https://arxiv.org/abs/1911.05722">MoCo</a>；<a href="https://arxiv.org/abs/2104.14294">DINO</a>；<a href="https://arxiv.org/abs/2111.06377">MAE</a>。</p></div>
+        <nav class="article-series-nav"><a href="/notes/llm-cv/05-resnet-vit-swin/">← 上一篇：视觉骨架</a><a href="/notes/llm-cv/07-clip-multimodal/">下一篇：CLIP 与多模态 →</a></nav>
+    </div></article>
+</main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>

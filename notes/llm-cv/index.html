@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="过去十年 LLM 与计算机视觉核心技术的逐篇学习笔记。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
+        integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <title>Qingwei Ben | LLM × CV 学习笔记</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+    <nav class="home-nav blog-topbar" aria-label="Blog navigation">
+        <a class="home-mark" href="/">Qingwei Ben</a>
+        <div class="home-nav__links">
+            <a href="/notes/">All Posts</a>
+            <a href="/">Home</a>
+        </div>
+    </nav>
+
+    <header class="blog-hero learning-header">
+        <span class="draft-status">Learning series · first draft</span>
+        <p class="eyebrow">14 notes / learn one at a time</p>
+        <h1>LLM × CV</h1>
+        <p class="learning-header__lead">过去十年真正留下来的核心技术。每篇只解决一个相对完整的问题，并用最小例子、常见误解和自测把它讲到能复述。</p>
+        <div class="series-progress">
+            <span><strong>14</strong> 篇独立文章</span>
+            <span><strong>4</strong> 条主线</span>
+            <span>状态：<strong>初稿待学习</strong></span>
+        </div>
+    </header>
+
+    <section class="series-grid" aria-label="LLM and CV learning series">
+        <p class="series-part-label">Part I · 序列模型与预训练</p>
+        <a class="series-card" href="/notes/llm-cv/01-token-embedding-autoregressive/">
+            <div class="series-card__top"><span class="series-card__number">01</span><span>序列地基</span></div>
+            <h2>Token、Embedding 与自回归训练</h2>
+            <p>原始信息怎样变成模型能计算的序列，next-token prediction 又到底优化了什么。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/02-attention-transformer/">
+            <div class="series-card__top"><span class="series-card__number">02</span><span>统一骨架</span></div>
+            <h2>Attention 与 Transformer</h2>
+            <p>从 Q/K/V、缩放点积、mask 到多头注意力，理解 Transformer 的信息流。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/03-gpt-bert-t5/">
+            <div class="series-card__top"><span class="series-card__number">03</span><span>架构选择</span></div>
+            <h2>GPT、BERT 与 T5</h2>
+            <p>decoder-only、encoder-only 与 encoder-decoder 为什么形成不同的模型能力。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/04-scaling-laws-chinchilla/">
+            <div class="series-card__top"><span class="series-card__number">04</span><span>规模化</span></div>
+            <h2>Scaling Laws、Chinchilla 与 MoE</h2>
+            <p>参数、数据和算力怎样配比，以及稀疏专家怎样扩大容量。</p>
+        </a>
+
+        <p class="series-part-label">Part II · 视觉表示与多模态</p>
+        <a class="series-card" href="/notes/llm-cv/05-resnet-vit-swin/">
+            <div class="series-card__top"><span class="series-card__number">05</span><span>视觉骨架</span></div>
+            <h2>ResNet、ViT 与 Swin</h2>
+            <p>从卷积的局部先验，到图片 patch token，再到层级视觉 Transformer。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/06-self-supervised-vision/">
+            <div class="series-card__top"><span class="series-card__number">06</span><span>无标签学习</span></div>
+            <h2>SimCLR、MoCo、DINO 与 MAE</h2>
+            <p>没有人工类别标签时，视觉监督信号从哪里来，以及怎样避免表示坍缩。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/07-clip-multimodal/">
+            <div class="series-card__top"><span class="series-card__number">07</span><span>跨模态对齐</span></div>
+            <h2>CLIP 与多模态模型</h2>
+            <p>图像和文字如何进入共同语义空间，以及视觉编码器怎样接入语言模型。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/08-detection-segmentation/">
+            <div class="series-card__top"><span class="series-card__number">08</span><span>视觉任务</span></div>
+            <h2>检测、分割与 Promptable Vision</h2>
+            <p>YOLO、DETR、U-Net、Mask R-CNN 和 SAM 的输出与设计选择。</p>
+        </a>
+
+        <p class="series-part-label">Part III · 生成、三维与世界模型</p>
+        <a class="series-card" href="/notes/llm-cv/09-generative-models/">
+            <div class="series-card__top"><span class="series-card__number">09</span><span>生成模型</span></div>
+            <h2>VAE、GAN 与 Diffusion</h2>
+            <p>似然、对抗学习和噪声预测分别在学习什么，为什么 diffusion 成为主流。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/10-nerf-3dgs-world-model/">
+            <div class="series-card__top"><span class="series-card__number">10</span><span>空间与时间</span></div>
+            <h2>NeRF、3DGS 与 World Model</h2>
+            <p>从多视角图像恢复可渲染三维场景，再到预测可控制的未来。</p>
+        </a>
+
+        <p class="series-part-label">Part IV · 后训练、推理与系统</p>
+        <a class="series-card" href="/notes/llm-cv/11-sft-rlhf-dpo-rlvr/">
+            <div class="series-card__top"><span class="series-card__number">11</span><span>后训练</span></div>
+            <h2>SFT、RLHF、DPO 与 RLVR</h2>
+            <p>怎样把“会续写”的基础模型变成会遵循指令、偏好和可验证目标的模型。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/12-cot-test-time-compute/">
+            <div class="series-card__top"><span class="series-card__number">12</span><span>推理能力</span></div>
+            <h2>Chain-of-Thought 与 Test-time Compute</h2>
+            <p>中间推理、采样搜索和“想得更久”分别怎样改变正确率与成本。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/13-rag-tools-agents/">
+            <div class="series-card__top"><span class="series-card__number">13</span><span>外部能力</span></div>
+            <h2>RAG、Tool Use 与 Agent</h2>
+            <p>模型如何检索、行动、观察结果，并把一次回答变成可持续执行的闭环。</p>
+        </a>
+        <a class="series-card" href="/notes/llm-cv/14-efficient-training-serving/">
+            <div class="series-card__top"><span class="series-card__number">14</span><span>训练与部署</span></div>
+            <h2>LoRA、量化、KV Cache 与分布式训练</h2>
+            <p>从参数高效微调到 FlashAttention、vLLM、ZeRO/FSDP 与并行策略。</p>
+        </a>
+    </section>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font">
+    <span class="text-muted">Copyright (c) 2026, Qingwei Ben</span>
+</footer>
+</body>
+</html>

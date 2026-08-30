@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="理解 YOLO、Faster R-CNN、DETR、U-Net、Mask R-CNN 与 SAM 的输出和设计。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap"><link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | 检测、分割与 Promptable Vision</title>
+</head>
+<body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
+    <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">08 / 14 · 初稿待学习</span><p class="eyebrow">从识别到空间输出</p><h1>检测、分割与 Promptable Vision</h1><p class="learning-header__lead">分类回答“图里有什么”；检测和分割还要回答“有几个、在哪里、每个像素属于谁”。输出结构决定了模型设计。</p></header>
+    <div class="post-content learning-article">
+        <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>检测输出对象集合与 box，语义分割给每个像素类别，实例分割还区分同类个体；DETR 把检测改写成集合匹配，SAM 把分割改写成由点/框/mask 提示控制的通用接口。</strong></p></div>
+
+        <h2>1. 先分清四种输出</h2>
+        <table><thead><tr><th>任务</th><th>输出</th><th>例子</th></tr></thead><tbody>
+            <tr><td>Classification</td><td>整图类别/概率</td><td>“有猫”</td></tr>
+            <tr><td>Object detection</td><td>每个对象的类别 + bounding box</td><td>“两只猫，各自位置”</td></tr>
+            <tr><td>Semantic segmentation</td><td>每个像素的类别</td><td>所有猫像素都标 cat</td></tr>
+            <tr><td>Instance segmentation</td><td>每个对象独立 mask + 类别</td><td>猫 A 与猫 B 分开</td></tr>
+        </tbody></table>
+
+        <h2>2. Two-stage 与 one-stage detection</h2>
+        <p>Faster R-CNN 先用 Region Proposal Network 找可能有物体的区域，再对每个 proposal 分类和回归 box。它把“在哪里”和“是什么”分成两个阶段，通常精度强，但 pipeline 较复杂。</p>
+        <p>YOLO 把整图划分/特征化后，在一次 dense forward 中直接预测多个位置的类别、objectness 和 box，因此适合实时场景。现代 YOLO 版本细节变化很多，“YOLO”更像单阶段实时检测家族，而不是一个固定公式。</p>
+        <p>传统 detector 常依赖 anchors、正负样本分配、box regression 和 Non-Maximum Suppression（NMS）。NMS 用 IoU 去掉同一对象的重复高分框，但阈值和拥挤场景可能带来误删。</p>
+
+        <h2>3. DETR：把 detection 当集合预测</h2>
+        <p>DETR 用固定数量的 object queries 输出一个无序集合。每个 query 预测一个类别（含 no-object）和 box。训练时用 Hungarian matching 在预测集合与真实对象之间寻找一一对应：</p>
+        <pre><code>predicted queries: q1 q2 q3 q4 ...
+                      ↘ ↙   ↓
+ground-truth set:   dog   cup   person</code></pre>
+        <p>匹配 cost 通常结合分类与 box 距离。每个真实对象只匹配一个 query，因此模型直接学习消除重复预测，可以去掉 anchors 和 NMS。代价是原始 DETR 收敛慢、小对象性能弱，后续 deformable/multi-scale 变体专门改进这些问题。</p>
+
+        <h2>4. U-Net：dense prediction 为什么要 skip connection？</h2>
+        <p>Encoder 下采样获得大 receptive field 和语义，decoder 上采样恢复分辨率。只靠 bottleneck 容易丢失边界细节，因此 U-Net 把 encoder 同尺度 feature 直接连接到 decoder：</p>
+        <pre><code>high-resolution encoder feature ───────────┐
+      ↓ downsample                        │ skip
+      bottleneck → upsample → concatenate ┘ → mask</code></pre>
+        <p>这里的 skip 与 ResNet 的加法残差目的不同：U-Net 常通过 concatenation 把早期空间细节送到解码端。</p>
+
+        <h2>5. Mask R-CNN：在对象框内预测实例 mask</h2>
+        <p>Mask R-CNN 在 Faster R-CNN 基础上并行增加 mask head。每个 RoI 既分类、回归 box，又输出一个低分辨率二值 mask。RoIAlign 避免坐标量化造成的 feature misalignment，这对像素级边界尤其重要。</p>
+        <p>它不是先做全图 semantic mask 再切对象，而是以 detection instance 为单位预测 mask，因此天然区分同类个体。</p>
+
+        <h2>6. SAM：从固定任务到可提示分割</h2>
+        <p>Segment Anything Model 拆成三部分：</p>
+        <ul><li><strong>Image encoder</strong>：昂贵地编码整张图，可复用。</li><li><strong>Prompt encoder</strong>：编码正/负点、框或已有 mask。</li><li><strong>Mask decoder</strong>：快速结合图像与提示，输出候选 masks 和质量分数。</li></ul>
+        <p>一个点可能对应对象、部件或局部区域，本身有歧义，所以 SAM 可以输出多个候选 mask。SAM 解决“这个提示所指区域是什么形状”，不必同时回答它的语义类别；语义命名常需与 detector、CLIP 或 VLM 结合。</p>
+
+        <h2>7. 指标也属于任务定义</h2>
+        <p>Intersection over Union：</p>
+        <div class="equation">$$\operatorname{IoU}=\frac{|A\cap B|}{|A\cup B|}$$</div>
+        <p>检测常在多个 IoU 阈值上计算 Average Precision；分割常用 mIoU、Dice 或 boundary metrics。只看某一个阈值可能掩盖定位质量、类别不平衡或小对象问题。</p>
+        <div class="concept-callout"><strong>常见误解：</strong><p>“Foundation vision model”不表示它自动完成所有视觉任务。SAM 的强项是 promptable masks；类别、关系、跟踪和三维一致性仍可能需要其他模块。</p></div>
+
+        <section class="learning-check"><h3>自测</h3>
+            <details><summary>1. Semantic segmentation 与 instance segmentation 的差别？</summary><p>前者给像素类别但不区分同类个体；后者为每个对象实例产生独立 mask。</p></details>
+            <details><summary>2. DETR 为什么可以不用 NMS？</summary><p>Hungarian matching 用一一对应监督固定 queries，每个真实对象只匹配一个预测，模型直接学习输出无重复集合。</p></details>
+            <details><summary>3. SAM 为什么把 image encoder 与 mask decoder 分开？</summary><p>图像特征可昂贵地预计算一次，而用户可反复改变 prompt，用轻量 decoder 快速得到新 mask。</p></details>
+        </section>
+        <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/1506.02640">YOLO</a>；<a href="https://arxiv.org/abs/1506.01497">Faster R-CNN</a>；<a href="https://arxiv.org/abs/2005.12872">DETR</a>；<a href="https://arxiv.org/abs/1505.04597">U-Net</a>；<a href="https://arxiv.org/abs/1703.06870">Mask R-CNN</a>；<a href="https://arxiv.org/abs/2304.02643">SAM</a>。</p></div>
+        <nav class="article-series-nav"><a href="/notes/llm-cv/07-clip-multimodal/">← 上一篇：CLIP</a><a href="/notes/llm-cv/09-generative-models/">下一篇：生成模型 →</a></nav>
+    </div></article>
+</main><footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body></html>
