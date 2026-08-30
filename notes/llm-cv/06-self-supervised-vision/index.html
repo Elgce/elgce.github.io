@@ -10,9 +10,11 @@
 </head>
 <body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
     <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
-    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">06 / 14 · 初稿待学习</span><p class="eyebrow">从标签到数据本身</p><h1>SimCLR、MoCo、DINO 与 MAE</h1><p class="learning-header__lead">没有人工类别标签时，模型仍可从“一张图的不同视图”和“缺失内容”中制造监督信号。</p></header>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">06 / 14 · 第一轮精讲</span><p class="eyebrow">从标签到数据本身</p><h1>SimCLR、MoCo、DINO 与 MAE</h1><p class="learning-header__lead">没有人工类别标签时，模型仍可从“一张图的不同视图”和“缺失内容”中制造监督信号。</p></header>
     <div class="post-content learning-article">
         <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>对比学习定义“哪些视图应相似”，自蒸馏让 teacher 提供稳定目标，MAE 则要求从少量可见 patch 恢复缺失图像；它们都在设计不依赖人工标签的预测题。</strong></p></div>
+        <div class="learning-route"><span>无标签图片</span><b>→</b><span>增强 / 遮挡</span><b>→</b><span>encoder</span><b>→</b><span>相似度 / teacher / pixels</span><b>→</b><span>self-supervised loss</span><b>→</b><span>迁移表示</span></div>
+        <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>对比路线</small><strong>两种 crop → 两个向量 → InfoNCE</strong></div><span class="process-arrow">|</span><div class="process-step"><small>蒸馏路线</small><strong>student crop → teacher distribution</strong></div><span class="process-arrow">|</span><div class="process-step"><small>重建路线</small><strong>25% visible → 75% pixels</strong></div></div><figcaption>数据本身生成 target，但“同一性”“不变性”和“要恢复什么”仍由算法设计者决定。</figcaption></figure>
 
         <h2>1. 自监督不等于没有监督</h2>
         <p>监督信号不是人工类别，而是从数据结构自动产生。例如同一图片的两个增强视图应该表达同一对象，遮住的 patch 应该能由可见区域恢复。模型仍然有 loss 和 target，只是 target 不由人逐张标注。</p>
@@ -24,11 +26,13 @@
         <div class="equation">$$\mathcal L_i=-\log\frac{\exp(\operatorname{sim}(z_i,z_j)/\tau)}{\sum_{k\ne i}\exp(\operatorname{sim}(z_i,z_k)/\tau)}$$</div>
         <p>$\tau$ 是 temperature。它控制 softmax 分布的尖锐程度。SimCLR 说明强数据增强、大 batch、非线性 projection head 对效果非常关键。</p>
         <p>Projection head 的一个直觉是：对比 loss 可以在 $z$ 空间丢弃增强变化，而 encoder 表示 $h$ 保留更多下游可用信息；下游通常丢掉 $g$。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 1：三候选 InfoNCE</p><p>anchor 与 positive/两个 negative 的 cosine similarity 为 $[0.8,0.2,-0.2]$，temperature $\tau=0.2$。缩放 logits 为 $[4,1,-1]$，指数约 $[54.598,2.718,0.368]$：</p><div class="calculation-stack"><p>positive 概率 $54.598/57.684=0.947$。</p><p>loss $=-\ln0.947=0.054$。</p><p>若 $\tau=1$，概率变为 $e^{0.8}/(e^{0.8}+e^{0.2}+e^{-0.2})\approx0.522$，loss 约 0.650。</p></div><p>低 temperature 会放大相似度差异。</p></div>
 
         <h2>3. MoCo：用队列获得大量一致 negatives</h2>
         <p>对比学习需要许多 negatives，但巨大 batch 显存昂贵。MoCo 维护一个历史 key 队列，让当前 query 与更多 key 对比。若 key encoder 每步随梯度骤变，队列里的旧 key 会来自不一致的表示空间，因此 MoCo 用 momentum update：</p>
         <div class="equation">$$\theta_k\leftarrow m\theta_k+(1-m)\theta_q$$</div>
         <p>key encoder 缓慢变化，使字典在较长时间内保持一致。核心不是“多了一个缓存”，而是把<strong>字典大小</strong>与<strong>当前 mini-batch 大小</strong>解耦。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 2：momentum update</p><p>某个权重的 key 值为 1.0、query 更新后为 1.4，取 $m=0.9$：</p><div class="equation">$$\theta_k\leftarrow0.9\times1.0+0.1\times1.4=1.04$$</div><p>query 跳到 1.4，key 只缓慢移到 1.04；队列中的历史 key 因而不会立刻过时。</p></div>
 
         <h2>4. 为什么会 representation collapse？</h2>
         <p>如果目标只要求同一图片的两个视图相等，所有图片都输出同一个常量向量就能轻松满足，这叫 collapse。不同方法用不同机制避免：</p>
@@ -41,6 +45,7 @@
         <h2>5. DINO：没有人工标签的自蒸馏</h2>
         <p>Student 看到某个 crop，拟合 teacher 对另一 crop 的输出分布。Teacher 不直接反向传播，而是 student 权重的 exponential moving average。Teacher 输出经过 centering 和 sharpening，避免所有样本输出完全相同或所有概率过度平均。</p>
         <p>DINO 的重要观察是：ViT 在这种自监督目标下产生的 attention 和 patch features 会自然呈现对象区域与语义结构，虽然训练没有提供 segmentation mask。这说明预训练目标与架构结合后能产生密集视觉表示。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 3：student 拟合 teacher distribution</p><p>Teacher 对 3 个 prototype 给出 $p_t=[0.7,0.2,0.1]$，student 为 $p_s=[0.5,0.3,0.2]$。交叉熵：</p><div class="equation">$$H(p_t,p_s)=-[0.7\ln0.5+0.2\ln0.3+0.1\ln0.2]\approx0.886$$</div><p>若 student 完全匹配 teacher，交叉熵等于 teacher 熵，约 0.802；二者差值就是 KL divergence，约 0.084。</p></div>
 
         <h2>6. MAE：遮大部分 patch，再重建</h2>
         <p>Masked Autoencoder 随机遮住很高比例的 image patches。Encoder 只处理可见 token；轻量 decoder 接收 encoded visible tokens 和 mask tokens，重建缺失像素。</p>
@@ -49,6 +54,7 @@
   → heavy encoder processes visible patches only
   → light decoder reconstructs missing patches</code></pre>
         <p>图像像素高度冗余，遮得太少时任务过于简单；高 mask ratio 既迫使模型理解较大结构，又显著减少 encoder 训练计算。预训练后 decoder 丢弃，只保留 encoder 做下游任务。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 4：75% mask 对 token 与 attention 的影响</p><p>224 图像配 16×16 patch 共 196 tokens。遮 75% 后 encoder 只读 $196\times0.25=49$ tokens。若只比较 self-attention score 数，$49^2=2{,}401$，而完整 196 tokens 是 $38{,}416$，约为 1/16。</p><p>轻量 decoder 仍负责重建全部 patch，因此整网加速不会精确等于 16 倍。</p></div>
 
         <h2>7. 四种方法如何选择？</h2>
         <table><thead><tr><th>方法</th><th>训练题</th><th>关键防坍缩/效率机制</th></tr></thead><tbody>
@@ -59,10 +65,12 @@
         </tbody></table>
         <p>评价表示时也要区分 linear probe、full fine-tuning、few-shot 和 dense task transfer；同一个预训练模型在不同评测协议下排名可能不同。</p>
 
-        <section class="learning-check"><h3>自测</h3>
+        <section class="learning-check"><h3>自测：先算后展开</h3>
             <details><summary>1. 自监督的“标签”从哪里来？</summary><p>由数据本身和人为定义的变换产生，例如同图不同增强是一对、遮掉的 patch 像素是重建目标。</p></details>
             <details><summary>2. MoCo 为什么需要 momentum encoder？</summary><p>队列包含过去 batch 的 key；key encoder 缓慢变化能减少旧 key 与新 query 表示空间不一致。</p></details>
             <details><summary>3. MAE 为什么遮住大部分 patch 反而合理？</summary><p>自然图像局部像素冗余很高，低遮挡容易靠邻域插值；高遮挡迫使模型利用更全局结构，同时 encoder 只处理少量可见 token。</p></details>
+            <details><summary>4. Batch 中有 32 张图，每张两种视图，共有多少表示？</summary><p>64 个。对某一个 anchor，它有 1 个同图 positive，其余 62 个可作 batch negatives（具体实现会处理自身位置）。</p></details>
+            <details><summary>5. $m=0.99$，key=2、query=3，EMA 后 key 是多少？</summary><p>$0.99\times2+0.01\times3=2.01$。</p></details>
         </section>
         <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2002.05709">SimCLR</a>；<a href="https://arxiv.org/abs/1911.05722">MoCo</a>；<a href="https://arxiv.org/abs/2104.14294">DINO</a>；<a href="https://arxiv.org/abs/2111.06377">MAE</a>。</p></div>
         <nav class="article-series-nav"><a href="/notes/llm-cv/05-resnet-vit-swin/">← 上一篇：视觉骨架</a><a href="/notes/llm-cv/07-clip-multimodal/">下一篇：CLIP 与多模态 →</a></nav>
