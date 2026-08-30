@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
 
     <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo&family=Noto+Serif+JP&family=Cormorant+Garamond&family=Libre+Baskerville&family=Source+Serif+Pro&family=Crimson+Text&family=Inter&family=Crimson+Pro&family=Literata&family=Ubuntu+Mono&family=Inter&family=Roboto">
+        href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo&amp;family=Noto+Serif+JP&amp;family=Cormorant+Garamond&amp;family=Libre+Baskerville&amp;family=Source+Serif+Pro&amp;family=Crimson+Text&amp;family=Inter&amp;family=Crimson+Pro&amp;family=Literata&amp;family=Ubuntu+Mono&amp;family=Inter&amp;family=Roboto">
     <link rel="stylesheet" type="text/css" href="/css/style.css">
 
     
@@ -52,6 +52,57 @@
     </header>
 
     <section class="blog-grid" aria-label="Blog posts">
+
+        <article class="blog-card">
+            <a class="blog-card__main" href="/notes/optimizers/">
+                <div class="blog-card__meta">
+                    <time>Aug 30, 2026</time>
+                    <span>8-note learning series</span>
+                </div>
+                <h2>深度学习优化器：从 SGD、AdamW 到 Muon</h2>
+                <p>从 gradient、momentum 与 Adam 出发，理解 decoupled weight decay、大模型 optimizer state、Adafactor、Lion、Shampoo、SOAP，以及 GR00T 当前的 Muon 混合方案。</p>
+            </a>
+
+            <div class="blog-card__tags">
+                <a href="/notes/optimizers/04-adamw-and-weight-decay/">#AdamW</a>
+                <a href="/notes/optimizers/07-shampoo-soap-and-muon/">#Muon</a>
+                <a href="/notes/optimizers/08-groot-muon-case-study/">#GR00T</a>
+            </div>
+        </article>
+
+        <article class="blog-card">
+            <a class="blog-card__main" href="/notes/control-and-mpc/">
+                <div class="blog-card__meta">
+                    <time>Aug 30, 2026</time>
+                    <span>8-note learning series</span>
+                </div>
+                <h2>传统控制与 MPC 基础</h2>
+                <p>从动力学、反馈、PID、状态空间和 Kalman filter 出发，理解 LQR、线性/非线性 MPC、鲁棒控制与机器人实时控制栈。</p>
+            </a>
+
+            <div class="blog-card__tags">
+                <a href="/notes/control-and-mpc/02-feedback-pid-and-stability/">#PID</a>
+                <a href="/notes/control-and-mpc/06-linear-mpc/">#MPC</a>
+                <a href="/notes/control-and-mpc/08-robot-real-time-control-stack/">#Robot Control</a>
+            </div>
+        </article>
+
+        <article class="blog-card">
+            <a class="blog-card__main" href="/notes/rl-training/">
+                <div class="blog-card__meta">
+                    <time>Aug 30, 2026</time>
+                    <span>10-note learning series</span>
+                </div>
+                <h2>强化学习训练：从 Bellman 到 Flow-GRPO</h2>
+                <p>从 MDP、value 与 policy gradient 出发，系统理解 DQN、PPO、TD3/SAC、offline RL、LLM 的 GRPO 和 flow-matching 的 Flow-GRPO。</p>
+            </a>
+
+            <div class="blog-card__tags">
+                <a href="/notes/rl-training/05-ppo/">#PPO</a>
+                <a href="/notes/rl-training/06-ddpg-td3-sac/">#SAC</a>
+                <a href="/notes/rl-training/10-flow-grpo/">#Flow-GRPO</a>
+            </div>
+        </article>
 
         <article class="blog-card">
             <a class="blog-card__main" href="/notes/robot-hardware/">

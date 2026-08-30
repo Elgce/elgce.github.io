@@ -5,8 +5,29 @@
     <link>https://www.qingweiben.com/notes/</link>
     <description>Recent content in Blog on Qingwei Ben</description>
     <language>en-us</language>
-    <lastBuildDate>Sat, 29 Aug 2026 00:00:00 -0700</lastBuildDate>
+    <lastBuildDate>Sun, 30 Aug 2026 00:00:00 -0700</lastBuildDate>
     <atom:link href="https://www.qingweiben.com/notes/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>深度学习优化器：从 SGD、AdamW 到 Muon</title>
+      <link>https://www.qingweiben.com/notes/optimizers/</link>
+      <pubDate>Sun, 30 Aug 2026 00:00:00 -0700</pubDate>
+      <guid>https://www.qingweiben.com/notes/optimizers/</guid>
+      <description>从 gradient、momentum 与 Adam 出发，理解 decoupled weight decay、大模型 optimizer state、Adafactor、Lion、Shampoo、SOAP，以及 GR00T 当前的 Muon 混合方案。</description>
+    </item>
+    <item>
+      <title>传统控制与 MPC 基础</title>
+      <link>https://www.qingweiben.com/notes/control-and-mpc/</link>
+      <pubDate>Sun, 30 Aug 2026 00:00:00 -0700</pubDate>
+      <guid>https://www.qingweiben.com/notes/control-and-mpc/</guid>
+      <description>从动力学、反馈、PID、状态空间和 Kalman filter 出发，理解 LQR、线性/非线性 MPC、鲁棒控制与机器人实时控制栈。</description>
+    </item>
+    <item>
+      <title>强化学习训练：从 Bellman 到 Flow-GRPO</title>
+      <link>https://www.qingweiben.com/notes/rl-training/</link>
+      <pubDate>Sun, 30 Aug 2026 00:00:00 -0700</pubDate>
+      <guid>https://www.qingweiben.com/notes/rl-training/</guid>
+      <description>从 MDP、value 与 policy gradient 出发，系统理解 DQN、PPO、TD3/SAC、offline RL、LLM 的 GRPO 和 flow-matching 的 Flow-GRPO。</description>
+    </item>
     <item>
       <title>机器人电机与硬件基础</title>
       <link>https://www.qingweiben.com/notes/robot-hardware/</link>
