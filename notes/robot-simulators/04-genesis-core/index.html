@@ -7,14 +7,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
     <link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <title>Qingwei Ben | Genesis World 核心逻辑</title>
 </head>
 <body class="container d-flex flex-column min-vh-100">
 <main class="blog-shell">
 <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
-<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">04 / 05 · 初稿待学习</span><p class="eyebrow">资料快照：Genesis World v1.3.3</p><h1>Genesis World：Solver 与 Coupler</h1><p class="learning-header__lead">Genesis World 把 Pythonic simulation interface、统一多物理引擎、渲染器和跨平台 kernel compiler 放进一套独立栈。它最有辨识度的设计，是让 entity 的 material 选择 solver，再由 scene-level coupler 处理不同物理方法之间的交互。</p></header>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">04 / 05 · 第一轮精讲</span><p class="eyebrow">资料快照：Genesis World v1.3.3</p><h1>Genesis World：Solver 与 Coupler</h1><p class="learning-header__lead">Genesis World 把 Pythonic simulation interface、统一多物理引擎、渲染器和跨平台 kernel compiler 放进一套独立栈。它最有辨识度的设计，是让 entity 的 material 选择 solver，再由 scene-level coupler 处理不同物理方法之间的交互。</p></header>
 <div class="post-content learning-article">
 <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>一个 Genesis Scene 内含一个 Simulator；Simulator 只激活场景实际需要的 solvers，并用一个 coupler 在每个 substep 交换跨 solver 的接触与作用。</strong></p></div>
+<div class="learning-route"><span>Scene + entities</span><b>→</b><span>material selects solver</span><b>→</b><span>build batched worlds</span><b>→</b><span>solver substeps</span><b>→</b><span>coupler interaction</span><b>→</b><span>render / observe</span></div>
+<figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>Rigid</small><strong>rigid solver</strong></div><span class="process-arrow">↘</span><div class="process-step"><small>Scene</small><strong>coupler per substep</strong></div><span class="process-arrow">↗</span><div class="process-step"><small>Soft / fluid</small><strong>MPM / SPH / FEM</strong></div><span class="process-arrow">→</span><div class="process-step"><small>统一接口</small><strong>state + render</strong></div></div><figcaption>“统一多物理”不等于一个 solver 处理一切，而是多个 solver 通过 coupler 交换作用。</figcaption></figure>
 
 <h2>1. 先更新对 Genesis 的认识</h2>
 <p>2024 年的项目已演化并更名为 <strong>Genesis World</strong>。当前开源主干不是“一个生成式世界模型”，而是 conventional physics + rendering + simulation API。编译底座已从早期资料常写的 Taichi 演化为 <strong>Quadrants</strong>，照片级渲染主路线是 <strong>Nyx</strong>。理解当前系统应以新仓库与版本文档为准。</p>
@@ -77,6 +80,11 @@ scene.step()</code></pre>
 <h2>8. 什么时候 Genesis 特别有吸引力</h2>
 <ul><li>任务同时涉及刚体与 cloth、soft body、颗粒、液体或 smoke。</li><li>希望用同一 Python API 面向 NVIDIA/AMD GPU、Apple Metal 或 CPU 后端。</li><li>想快速构建大量 batched env，又不需要 Omniverse 完整工业栈。</li><li>研究 differentiable simulation、材料参数拟合或 rigid-soft manipulation。</li></ul>
 
+<h2>9. 四个 Genesis 量级计算</h2>
+<div class="numeric-example"><p class="numeric-example__title">例 1：并行环境 tensor</p><p>4096 个环境、每个 6 DoF，position tensor shape 为 [4096,6]，共 24,576 个 fp32，约 96 KiB。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 2：substep 时间</p><p>Scene dt=0.02 s，substeps=4，则每个 solver 子步 0.005 s；50 个 scene steps 推进 1 秒物理时间，内部执行 200 个 substeps。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 3：多物理组合成本</p><p>Rigid solver 每 substep 0.4 ms、MPM 1.1 ms、coupler 0.3 ms，若串行总计 1.8 ms；4 substeps 约 7.2 ms/scene step，不含 render。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 4：real-time factor</p><p>模拟 10 s 物理时间用 2 s wall time，real-time factor=$10/2=5×$；若加入渲染后用 8 s，则降为 1.25×，不能沿用无渲染 FPS。</p></div>
 <div class="concept-callout"><strong>常见误解：</strong><p>Genesis 的单项超高 FPS 宣传不是跨引擎结论。版本、模型、环境数、solver、contact、精度、渲染和统计方法不同，数字不能直接用于选型。</p></div>
 <section class="learning-check"><h3>自测</h3>
 <details><summary>1. Genesis 怎样决定一个 entity 由哪个 solver 推进？</summary><p>由 entity 的 Material 类型路由到对应 solver；scene 只激活实际需要的 solver。</p></details>
