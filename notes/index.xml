@@ -8,6 +8,20 @@
     <lastBuildDate>Sun, 30 Aug 2026 00:00:00 -0700</lastBuildDate>
     <atom:link href="https://www.qingweiben.com/notes/index.xml" rel="self" type="application/rss+xml" />
     <item>
+      <title>具身 System 2、VLN 与 Language 注入</title>
+      <link>https://www.qingweiben.com/notes/embodied-system2-vln/</link>
+      <pubDate>Sun, 30 Aug 2026 00:00:00 -0700</pubDate>
+      <guid>https://www.qingweiben.com/notes/embodied-system2-vln/</guid>
+      <description>从 VLN 基础出发，比较 cross-attention、语言动作、spatial goal、latent plan、地图/记忆/搜索、fast–slow 控制的效果、局限与研究方向。</description>
+    </item>
+    <item>
+      <title>高性能计算、CUDA 算子与推理系统</title>
+      <link>https://www.qingweiben.com/notes/hpc-cuda-inference/</link>
+      <pubDate>Sun, 30 Aug 2026 00:00:00 -0700</pubDate>
+      <guid>https://www.qingweiben.com/notes/hpc-cuda-inference/</guid>
+      <description>从性能模型、CPU/GPU 架构和 CUDA 出发，理解并行 primitives、Triton/CUTLASS、编译融合、多 GPU、TensorRT 与 LLM serving。</description>
+    </item>
+    <item>
       <title>深度学习优化器：从 SGD、AdamW 到 Muon</title>
       <link>https://www.qingweiben.com/notes/optimizers/</link>
       <pubDate>Sun, 30 Aug 2026 00:00:00 -0700</pubDate>
