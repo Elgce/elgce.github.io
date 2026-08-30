@@ -10,15 +10,18 @@
 </head>
 <body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
     <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/llm-cv/">Series</a><a href="/notes/">All Posts</a></div></nav>
-    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">13 / 14 · 初稿待学习</span><p class="eyebrow">从回答到行动闭环</p><h1>RAG、Tool Use 与 Agent</h1><p class="learning-header__lead">大模型参数负责产生策略和语言；检索、工具与环境负责提供新证据和真实状态。Agent 的核心是把两者接成可观察、可约束的循环。</p></header>
+    <article class="post-shell"><header class="post-header learning-header"><span class="draft-status">13 / 14 · 第一轮精讲</span><p class="eyebrow">从回答到行动闭环</p><h1>RAG、Tool Use 与 Agent</h1><p class="learning-header__lead">大模型参数负责产生策略和语言；检索、工具与环境负责提供新证据和真实状态。Agent 的核心是把两者接成可观察、可约束的循环。</p></header>
     <div class="post-content learning-article">
         <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>RAG 在回答前取回外部证据；tool calling 让模型请求确定性操作；agent loop 则反复执行“观察 → 决策 → 行动 → 新观察”，直到终止。</strong></p></div>
+        <div class="learning-route"><span>用户目标</span><b>→</b><span>检索证据</span><b>→</b><span>模型选动作</span><b>→</b><span>host 验证执行</span><b>→</b><span>observation</span><b>→</b><span>继续 / 终止</span></div>
+        <figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>Read</small><strong>query → retrieve → rerank</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Decide</small><strong>answer or tool call</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Act</small><strong>validate → execute</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Observe</small><strong>result / error → state</strong></div><span class="process-arrow">↺</span></div><figcaption>模型不直接拥有外部事实或副作用权限；证据与动作结果都必须由环境返回。</figcaption></figure>
 
         <h2>1. 为什么知识不应全部塞进参数？</h2>
         <p>参数知识压缩在模型权重中，覆盖广、调用快，却难精确更新、难注明来源，也无法知道刚刚发生的私有事件。外部知识库可以实时修改、控制权限、返回原文和引用。</p>
         <p>RAG 的目的不是简单“把搜索结果粘到 prompt”，而是让生成显式条件于可追溯证据：</p>
         <div class="equation">$$p(y\mid x)=\sum_z p_\eta(z\mid x)p_\theta(y\mid x,z)$$</div>
         <p>$z$ 是取回文档。Retriever 决定看什么，generator 决定如何使用。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 1：RAG 的边缘化直觉</p><p>Retriever 给两篇文档概率 $p(z_1|x)=0.7,p(z_2|x)=0.3$；generator 在两篇条件下生成正确答案概率分别 0.9、0.2：</p><div class="equation">$$p(y|x)=0.7\times0.9+0.3\times0.2=0.69$$</div><p>高质量生成器也救不了完全错误的检索；反过来，正确证据若未被 generator 使用也不会自动变成正确答案。</p></div>
 
         <h2>2. 一个实际 RAG pipeline</h2>
         <pre><code>documents
@@ -33,12 +36,14 @@ user query
   → pack context with citations
   → generate grounded answer</code></pre>
         <p>每一步都可能失败：PDF 解析错、chunk 截断关键信息、query 太模糊、embedding 找到主题相近但答案错误的段落、context 过长挤掉真正证据，或模型忽略证据继续凭参数回答。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 2：context packing 预算</p><p>模型窗口 8,192 tokens；system+history 1,500，预留回答 1,200，剩余证据预算 $8192-1500-1200=5492$。若每 chunk 连 metadata 平均 600 tokens，最多完整放 9 个（5,400 tokens），再多一个就溢出。</p></div>
 
         <h2>3. Embedding 相似度代表什么？</h2>
         <p>Embedding model 把 query 和文档映射到向量，常用 cosine 或 dot product 排序。训练目标使语义相关 pair 靠近，但几何距离不是事实真伪概率，也不天然理解访问权限、时间有效性和精确数字。</p>
         <p>实践中常结合：</p>
         <ul><li><strong>Dense retrieval</strong>：擅长语义改写和概念相关。</li><li><strong>Sparse/BM25</strong>：擅长精确关键词、ID、罕见名称。</li><li><strong>Metadata filter</strong>：先按时间、项目、权限缩小范围。</li><li><strong>Cross-encoder reranker</strong>：让 query 与候选深度交互，精排少量文档。</li></ul>
         <p>Hybrid retrieval 的意义是不同失败模式互补，不是“向量数据库自动解决知识”。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 3：cosine similarity 手算</p><p>Query $q=[1,1]$，文档 $d_1=[2,0]$、$d_2=[1,1]$：</p><div class="calculation-stack"><p>$\cos(q,d_1)=2/(\sqrt2\times2)=0.707$。</p><p>$\cos(q,d_2)=2/(\sqrt2\times\sqrt2)=1$。</p></div><p>$d_2$ 排名更高，但 1.0 只表示向量同方向，不是“事实 100% 正确”。</p></div>
 
         <h2>4. Tool calling 与普通文本有什么差别？</h2>
         <p>模型产生结构化调用意图，宿主程序验证并执行，再把真实结果作为 observation 返回：</p>
@@ -47,6 +52,7 @@ host:  validate schema + permissions → execute API
 tool:  {"temperature":18, "unit":"C"}
 model: 根据 observation 生成最终回答</code></pre>
         <p>模型本身并没有执行 API。真正副作用发生在 host/tool 层，因此 schema validation、权限、超时、幂等、重试和审计日志都属于 agent correctness。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 4：重试为什么需要幂等</p><p>支付工具请求 100 元，第一次调用其实成功但响应超时；若直接重试，可能共扣 200 元。两次都携带相同 idempotency key <code>pay-42</code>，host 可返回第一次结果而不重复副作用。</p></div>
 
         <h2>5. ReAct：推理与行动交错</h2>
         <p>ReAct 把任务展开成多轮：</p>
@@ -56,6 +62,7 @@ model: 根据 observation 生成最终回答</code></pre>
   → update state
   → next action or final answer</code></pre>
         <p>关键改进是模型不必在第一次回答前假装知道工具结果；它可根据 observation 修正计划。实现不一定要向用户显示完整 chain-of-thought，内部状态可以是简短 action rationale、结构化 plan 或隐藏 reasoning。</p>
+        <div class="numeric-example"><p class="numeric-example__title">例 5：多步可靠性相乘</p><p>一个 agent 任务需要 5 次关键 tool call；假设每一步独立成功率 0.95，则全程无错概率 $0.95^5\approx0.774$。单步看似 95%，端到端只剩约 77.4%。验证、可恢复重试和减少不必要步骤很重要。</p></div>
 
         <h2>6. Agent 由哪些层组成？</h2>
         <table><thead><tr><th>层</th><th>职责</th><th>典型失败</th></tr></thead><tbody>
@@ -83,10 +90,12 @@ model: 根据 observation 生成最终回答</code></pre>
         <p>软件 agent 的 observation/action loop 与机器人 sense–plan–act 同构，但现实动作不可轻易撤销，状态连续且存在延迟。机器人需要更严格的安全 controller、频率分层和状态估计；LLM 可以做高层任务分解，却不能取代实时控制与碰撞约束。</p>
         <div class="concept-callout"><strong>常见误解：</strong><p>“用了 LLM + tools”不自动成为可靠 agent。真正决定系统能力的是 observation 是否真实、tool 是否可控、状态是否正确、循环是否有终止与验证。</p></div>
 
-        <section class="learning-check"><h3>自测</h3>
+        <section class="learning-check"><h3>自测：先算后展开</h3>
             <details><summary>1. Retriever 找到相似文档为何还可能答错？</summary><p>相似度只表示表示空间相关；文档可能过期、缺答案、权限不符，generator 也可能错误解释或忽略它。</p></details>
             <details><summary>2. Tool call 真正由谁执行？</summary><p>宿主/orchestrator 验证模型输出后调用实际 API；模型只提出结构化动作请求。</p></details>
             <details><summary>3. Agent loop 比单次 prompt 多了什么？</summary><p>外部动作后的新 observation 会进入状态，模型可据此修正下一步，直到明确完成或失败。</p></details>
+            <details><summary>4. 4,096 token 窗口，已有 1,000，预留输出 800，证据可用多少？</summary><p>$4096-1000-800=2296$ tokens。</p></details>
+            <details><summary>5. 三个独立步骤成功率都为 0.9，端到端成功率？</summary><p>$0.9^3=0.729$，即 72.9%。</p></details>
         </section>
         <div class="source-list"><h3>原始资料</h3><p><a href="https://arxiv.org/abs/2005.11401">Retrieval-Augmented Generation</a>；<a href="https://arxiv.org/abs/2210.03629">ReAct</a>；<a href="https://arxiv.org/abs/2302.04761">Toolformer</a>。</p></div>
         <nav class="article-series-nav"><a href="/notes/llm-cv/12-cot-test-time-compute/">← 上一篇：Test-time Compute</a><a href="/notes/llm-cv/14-efficient-training-serving/">下一篇：高效训练与部署 →</a></nav>
