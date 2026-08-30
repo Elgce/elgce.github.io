@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="用具体数字逐步理解 tokenization、embedding lookup、位置编码、自回归分解、teacher forcing、causal mask、softmax 与 cross-entropy。">
+    <meta name="description" content="用具体数字逐步理解 BPE、tokenization、embedding lookup、位置编码、自回归分解、hidden state、全词表 logits、softmax 与 cross-entropy。">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css"
         integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
@@ -67,8 +67,40 @@
                     <tbody><tr><th>ID</th><td>0</td><td>1</td><td>2</td><td>3</td><td>4</td><td>5</td></tr></tbody>
                 </table>
                 <div class="calculation-line"><code>"I love robots" → [&lt;BOS&gt;, I, love, robot, s, &lt;EOS&gt;] → [0, 1, 2, 3, 4, 5]</code></div>
-                <p><code>robots</code> 不在词表里，所以被拆成 <code>robot</code> + <code>s</code>。真实 tokenizer 会用 BPE、Unigram 或 byte-level 方法学习这种子词词表；这里的切法只为说明计算。</p>
+                <p><code>robots</code> 不在词表里，所以被拆成 <code>robot</code> + <code>s</code>。真实 tokenizer 会用 BPE、Unigram 等方法学习子词词表；这里的切法只为说明计算。</p>
             </div>
+
+            <h3>BPE 的“学习”不是神经网络训练</h3>
+            <p>BPE 先在大量文本上统计相邻符号组合，反复合并最常见的组合，最后保存<strong>词表和有顺序的合并规则</strong>。它没有神经网络、loss、反向传播或梯度下降。</p>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 1A：从 <code>low, low, lower</code> 手算两轮 BPE</p>
+                <p>初始先把每个词看成基本符号：</p>
+                <div class="calculation-line"><code>l o w　|　l o w　|　l o w e r</code></div>
+                <table class="calculation-table">
+                    <thead><tr><th>相邻组合</th><th><code>l + o</code></th><th><code>o + w</code></th><th><code>w + e</code></th><th><code>e + r</code></th></tr></thead>
+                    <tbody><tr><th>出现次数</th><td>3</td><td>3</td><td>1</td><td>1</td></tr></tbody>
+                </table>
+                <p>若并列时规定先选 <code>l + o</code>，第一轮得到：</p>
+                <div class="calculation-line"><code>l + o → lo　　得到：lo w | lo w | lo w e r</code></div>
+                <p>重新统计后，<code>lo + w</code> 出现 3 次，于是第二轮得到：</p>
+                <div class="calculation-line"><code>lo + w → low　　得到：low | low | low e r</code></div>
+                <p>以后编码 <code>lower</code> 时，tokenizer 按已经保存的优先级执行：<code>l o w e r → lo w e r → low e r</code>。因此歧义不是模型临场猜测，而是由固定算法和固定规则确定。</p>
+            </div>
+
+            <div class="concept-callout"><strong>Byte-level BPE 的直觉：</strong><p>先保证任何 UTF-8 文本都能退回到基础字节，再把语料中常见的字节序列合并成 token。中文、英文、emoji 可以共享同一套词表；一个 token 可能是一个英文子词、一个汉字、多个汉字，也可能只是某个字符的一部分。OpenAI 公开的 <code>tiktoken</code> 使用模型相关的 encoding，不同 GPT 模型不必采用完全相同的词表和切分。</p></div>
+
+            <p>因此实际训练通常分为两个不同阶段：</p>
+            <figure class="learning-figure">
+                <div class="process-flow" aria-label="Tokenizer learning and model training stages">
+                    <div class="process-step"><small>① Tokenizer 阶段</small><strong>统计语料 → 词表与规则</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>② 固定 tokenizer</small><strong>文本 → token IDs</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>③ 神经网络阶段</small><strong>训练 embedding + Transformer</strong></div>
+                </div>
+                <figcaption>日常所说“训练 tokenizer”通常是统计学习；真正通过反向传播改变的是 embedding、Transformer 和输出层参数。</figcaption>
+            </figure>
 
             <p>token 不等于单词。它可以是子词、字节、图像 patch、视觉 code 或离散动作。词表大小是在两种成本之间折中：</p>
             <ul>
@@ -116,6 +148,18 @@
             <div class="compare-grid">
                 <div class="compare-card"><h3>Input embedding</h3><p>由 token ID 查表得到；同一个 token 的起始向量相同。</p></div>
                 <div class="compare-card"><h3>Contextual hidden state</h3><p>经过 attention 后得到；同一个 <code>robot</code> 在不同上下文中会变成不同向量。</p></div>
+            </div>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">Embedding 的“大小”可能指两个不同数字</p>
+                <table class="calculation-table">
+                    <thead><tr><th>符号</th><th>含义</th><th>例子</th></tr></thead>
+                    <tbody>
+                        <tr><th>$V$</th><td>词表大小，也就是有多少行</td><td>100,000 个 token</td></tr>
+                        <tr><th>$d$</th><td>每个 token 向量的宽度，也就是有多少列</td><td>4,096 维</td></tr>
+                    </tbody>
+                </table>
+                <p>此时 embedding matrix 的形状是 $100{,}000\times4{,}096$，共有 409,600,000 个可训练参数。词表越大，行数越多；模型宽度越大，每一行越长。</p>
             </div>
 
             <h2>3. 自回归：把联合概率拆成一步一步</h2>
@@ -182,12 +226,43 @@
                 <p>未来位置严格得到 0 权重，而不是“很小的权重”。</p>
             </div>
 
-            <h2>6. Logits、softmax 与 cross-entropy</h2>
-            <p>Transformer 输出当前位置 hidden state $h_t$；线性输出层把它投影到词表大小，得到 logits。Logit 可以为任意实数，不是概率。Softmax 才把它正规化：</p>
+            <h2>6. Hidden state、logits、softmax 与 loss</h2>
+            <p>口语里常说“Transformer 输出 logits”，但严格地说，Transformer 主体先为每个位置输出一个连续 hidden state；LM Head（也叫输出层或 unembedding）再把它投影成 logits：</p>
+            <figure class="learning-figure">
+                <div class="process-flow" aria-label="Hidden state to discrete token flow">
+                    <div class="process-step"><small>Transformer</small><strong>hidden state，$d$ 个连续数</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>LM Head</small><strong>$V$ 个连续 logits</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>Softmax</small><strong>$V$ 个连续概率</strong></div>
+                    <span class="process-arrow">→</span>
+                    <div class="process-step"><small>选择</small><strong>1 个离散 token ID</strong></div>
+                </div>
+                <figcaption>离散的是两端的 token ID；embedding、hidden state、logits 和概率都是连续数值。</figcaption>
+            </figure>
+
+            <div class="numeric-example">
+                <p class="numeric-example__title">例 5A：hidden state 怎样经过输出矩阵变成 logits</p>
+                <p>假设 hidden state 为 $h=[1,2,-1]$，输出词表只有四项。先忽略 bias，每一项 logit 都是 $h$ 与对应输出权重的点积：</p>
+                <table class="calculation-table">
+                    <thead><tr><th>候选</th><th>输出权重</th><th>点积计算</th><th>logit</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>I</code></td><td><code>[0.2, 0.1, 0.0]</code></td><td><code>1×0.2 + 2×0.1 + (−1)×0.0</code></td><td>0.4</td></tr>
+                        <tr><td><code>love</code></td><td><code>[0.0, 0.5, 0.2]</code></td><td><code>1×0.0 + 2×0.5 + (−1)×0.2</code></td><td>0.8</td></tr>
+                        <tr class="matrix-highlight"><td><code>robot</code></td><td><code>[0.6, 0.4, −0.2]</code></td><td><code>1×0.6 + 2×0.4 + (−1)×(−0.2)</code></td><td>1.6</td></tr>
+                        <tr><td><code>&lt;EOS&gt;</code></td><td><code>[−0.1, 0.0, 0.3]</code></td><td><code>1×(−0.1) + 2×0.0 + (−1)×0.3</code></td><td>−0.4</td></tr>
+                    </tbody>
+                </table>
+                <p>于是 $[1,2,-1]$ 经过这个 $4\times3$ 输出矩阵后，得到 logits <code>[0.4, 0.8, 1.6, −0.4]</code>。Logit 可以是任意实数，并不是离散类别或概率。</p>
+            </div>
+
+            <div class="concept-callout"><strong>词表有多大，标准输出就有多大：</strong><p>若词表大小为 $V=100{,}000$，每个位置就产生 100,000 个 logits，标准 Softmax 也在这 100,000 项上归一化。训练一个长度为 $T$ 的序列会得到 $T\times V$ 的 logits；生成时通常只使用最新位置的 $V$ 项。Top-k 和 top-p 通常是在完整 logits 算出之后筛选，数学上没有把输出词表变小。</p></div>
+
+            <p>Softmax 把 logits 转成总和为 1 的概率；cross-entropy 只取正确 token 的概率来计算这个位置的 loss：</p>
             <div class="equation">$$p_i=\frac{e^{z_i}}{\sum_j e^{z_j}},\qquad \mathcal L_t=-\ln p_{\text{correct}}$$</div>
 
             <div class="numeric-example">
-                <p class="numeric-example__title">例 5：从四个 logits 手算一个位置的 loss</p>
+                <p class="numeric-example__title">例 5B：从四个 logits 手算一个位置的 loss</p>
                 <p>位置 2 的正确标签是 <code>robot</code>。为简化，只展示四个候选：</p>
                 <table class="calculation-table">
                     <thead><tr><th>候选</th><th><code>I</code></th><th><code>love</code></th><th><code>robot</code></th><th><code>&lt;EOS&gt;</code></th></tr></thead>
@@ -195,7 +270,26 @@
                 </table>
                 <p>分母为 $1+2.718+7.389+0.368=11.475$，所以：</p>
                 <div class="equation">$$p(\text{robot})=7.389/11.475=0.644,\qquad \mathcal L=-\ln(0.644)=0.440$$</div>
-                <p>若一次更新后 <code>robot</code> logit 从 2 增加到 2.6，其他不变，则 $p(\text{robot})\approx0.767$，loss 降到 $-\ln(0.767)\approx0.265$。</p>
+                <p><strong>0.440 不是 44% 错误率。</strong>它表示模型对正确答案的“意外程度”。<code>robot</code> 虽然已经排名第一，但模型只给它 64.4% 的概率，仍有 35.6% 的概率质量放在错误答案上，所以 loss 还不为 0。</p>
+                <table class="calculation-table">
+                    <thead><tr><th>正确 token 概率</th><th>$-\ln(p)$</th><th>直觉</th></tr></thead>
+                    <tbody>
+                        <tr><td>1.00</td><td>0.000</td><td>完全确信正确答案</td></tr>
+                        <tr><td>0.90</td><td>0.105</td><td>很有把握</td></tr>
+                        <tr class="matrix-highlight"><td>0.644</td><td>0.440</td><td>答案排第一，但还不够确信</td></tr>
+                        <tr><td>0.50</td><td>0.693</td><td>只有一半把握</td></tr>
+                        <tr><td>0.10</td><td>2.303</td><td>几乎没想到正确答案</td></tr>
+                        <tr><td>0.01</td><td>4.605</td><td>非常自信地预测错了</td></tr>
+                    </tbody>
+                </table>
+                <p>若一次更新后 <code>robot</code> logit 从 2 增加到 2.6，其他不变：</p>
+                <div class="calculation-stack">
+                    <p>新的指数值：$e^{2.6}=13.464$。</p>
+                    <p>新的分母：$1+2.718+13.464+0.368=17.550$。</p>
+                    <p>正确概率：$p(\text{robot})=13.464/17.550=0.767$。</p>
+                    <p>新的 loss：$-\ln(0.767)=0.265$。</p>
+                </div>
+                <p>训练达成了目标：正确 token 的 logit 增大，概率从 64.4% 升到 76.7%，因此 loss 从 0.440 降到 0.265。负对数还会对“非常自信地犯错”给出很大惩罚，并把整句概率的连乘转成各位置 loss 的相加。</p>
             </div>
 
             <h3>梯度究竟更新什么</h3>
@@ -265,11 +359,13 @@ Ottawa is the capital of Canada</code></pre>
                 <details><summary>3. 正确 token 概率从 0.25 提升到 0.50，cross-entropy 各是多少？</summary><p>$-\ln0.25=1.386$，$-\ln0.50=0.693$，loss 减少 0.693。</p></details>
                 <details><summary>4. 为什么 causal mask 允许训练并行，却没有泄漏未来？</summary><p>所有 query 同时计算，但每个位置在 softmax 前把未来 key 的 score 设为 $-\infty$，对应权重严格为 0。</p></details>
                 <details><summary>5. Teacher forcing 与 greedy decoding 的输入差别是什么？</summary><p>Teacher forcing 的下一位置总拿真实历史；greedy decoding 拿模型自己上一轮选出的最高概率 token。</p></details>
+                <details><summary>6. BPE 的学习为什么不属于神经网络训练？</summary><p>它通过统计相邻符号频率并反复合并来产生词表和规则，没有可微网络、反向传播或梯度下降；规则确定后，编码也是确定性的。</p></details>
+                <details><summary>7. 词表大小为 50,000 时，一个位置会得到多少个 logits？</summary><p>标准语言模型会得到 50,000 个连续 logits，Softmax 在这 50,000 项上归一化，最后才选择一个离散 token ID。</p></details>
             </section>
 
             <div class="source-list">
                 <h3>原始资料</h3>
-                <p><a href="https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf">Generative Pre-Training</a> 展示了语言建模预训练再迁移的路线。下一篇会把这里暂时当作黑箱的 Transformer 拆开，逐项计算 Q、K、V 与 attention。</p>
+                <p><a href="https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf">Generative Pre-Training</a> 展示了语言建模预训练再迁移的路线；<a href="https://developers.openai.com/cookbook/examples/how_to_count_tokens_with_tiktoken">OpenAI 的 tiktoken 示例</a> 展示了文本如何变成 token、不同模型如何对应不同 encoding（该页面已归档，模型列表应视为历史示例）。下一篇会把这里暂时当作黑箱的 Transformer 拆开，逐项计算 Q、K、V 与 attention。</p>
             </div>
             <nav class="article-series-nav"><a href="/notes/llm-cv/">← 系列目录</a><a href="/notes/llm-cv/02-attention-transformer/">下一篇：Attention 与 Transformer →</a></nav>
         </div>
