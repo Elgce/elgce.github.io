@@ -7,14 +7,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
     <link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script><script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <title>Qingwei Ben | 仿真器比较、选型与工作流</title>
 </head>
 <body class="container d-flex flex-column min-vh-100">
 <main class="blog-shell">
 <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
-<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 05 · 初稿待学习</span><p class="eyebrow">从功能表回到可证伪实验</p><h1>怎样比较、选型与做 sim-to-sim</h1><p class="learning-header__lead">选仿真系统不是寻找一个全局冠军，而是决定哪些层必须成熟、哪些可以替换、哪些误差会主导你的任务。真正公平的比较，要把资产、执行器、时钟、观测和成功指标全部固定。</p></header>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 05 · 第一轮精讲</span><p class="eyebrow">从功能表回到可证伪实验</p><h1>怎样比较、选型与做 sim-to-sim</h1><p class="learning-header__lead">选仿真系统不是寻找一个全局冠军，而是决定哪些层必须成熟、哪些可以替换、哪些误差会主导你的任务。真正公平的比较，要把资产、执行器、时钟、观测和成功指标全部固定。</p></header>
 <div class="post-content learning-article">
 <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>先按层级拆系统，再按任务验证：Isaac Sim 强在完整数字孪生与感知栈，Newton 强在可插拔 GPU 物理和 robot-learning backend，Genesis World 强在独立 Pythonic 多物理平台。</strong></p></div>
+<div class="learning-route"><span>定义关键现象</span><b>→</b><span>冻结资产与控制</span><b>→</b><span>逐层对齐</span><b>→</b><span>小机制 benchmark</span><b>→</b><span>闭环 sim-to-sim</span><b>→</b><span>真实校准</span></div>
+<figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>固定</small><strong>asset / dt / gains / reset</strong></div><span class="process-arrow">→</span><div class="process-step"><small>测物理</small><strong>free fall / contact / joint</strong></div><span class="process-arrow">→</span><div class="process-step"><small>测系统</small><strong>throughput / sensors / tooling</strong></div><span class="process-arrow">→</span><div class="process-step"><small>决策</small><strong>error-cost frontier</strong></div></div><figcaption>先用可解释的小实验定位差异，再跑复杂 humanoid；否则无法知道差在何处。</figcaption></figure>
 
 <h2>1. 统一比较表</h2>
 <table><thead><tr><th>维度</th><th>Isaac Sim 6.0.1</th><th>Newton 1.5.1</th><th>Genesis World 1.3.3</th></tr></thead><tbody>
@@ -89,6 +92,11 @@ compare:
 <h2>7. 从 sim-to-sim 走向 sim-to-real</h2>
 <ul><li>用 system identification 校准 mass、friction、motor、latency，而非只做宽泛 randomization。</li><li>对不可辨识参数做有物理意义的 distribution，验证 policy 对每一类变化的敏感度。</li><li>把相机 exposure、rolling shutter、深度空洞、通信 jitter 与 safety controller 纳入闭环。</li><li>保留多个 backend 作为 model disagreement signal：策略只在一个 solver 成功时要提高警惕。</li><li>最终证据仍是真机受控 rollout；sim-to-sim 一致只说明数值模型彼此接近。</li></ul>
 
+<h2>8. 四个公平比较计算</h2>
+<div class="numeric-example"><p class="numeric-example__title">例 1：real-time factor</p><p>仿真推进 60 s 物理时间：A 用 3 s wall time，RTF=20×；B 用 2 s，RTF=30×。B 快 50%，不是“快 10×”。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 2：落体误差</p><p>无阻力从 1 m 落下解析时间 $t=√(2h/g)=√(2/9.81)=0.452$ s。引擎结果 0.47 s，绝对误差 18 ms，相对误差约 4.0%。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 3：吞吐必须归一</p><p>A 4096 env×200 steps/s=819,200 env-steps/s；B 8192×120=983,040，B 总吞吐高 20%，但单环境 step rate 更低。</p></div>
+<div class="numeric-example"><p class="numeric-example__title">例 4：success gap 的不确定性</p><p>同 100 seeds，A 成功 82、B 76，差 6 点。单组标准误约 4%，这个差可能不稳；需要 paired seeds、更多 trials 与 failure breakdown，而非只看均值。</p></div>
 <div class="concept-callout"><strong>最终判断标准：</strong><p>最好的仿真栈，是在你的关键现象上有足够可信度，同时能以可接受的速度、资产成本和调试成本产生可复现实验的那一套，而不是功能最多或某个 demo FPS 最高的那一套。</p></div>
 <section class="learning-check"><h3>自测</h3>
 <details><summary>1. 为什么 Isaac Sim 和 Newton 不是严格二选一？</summary><p>Newton 可以作为 Isaac Sim/Isaac Lab 的 physics backend；Isaac Sim 其余 USD、Fabric、RTX、ROS 等平台层仍可保留。</p></details>
