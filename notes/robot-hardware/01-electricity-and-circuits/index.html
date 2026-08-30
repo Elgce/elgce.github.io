@@ -9,9 +9,11 @@
 </head>
 <body class="container d-flex flex-column min-vh-100"><main class="blog-shell">
 <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-hardware/">Series</a><a href="/notes/">All Posts</a></div></nav>
-<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">01 / 09 · 初稿待学习</span><p class="eyebrow">先建立单位和能量直觉</p><h1>电压、电流、功率与真实导线</h1><p class="learning-header__lead">机器人首先是一台会移动的电力系统。控制算法最终都要变成电流，而电流经过电阻会发热、经过电感不能瞬间变化，还必须沿真实导线回到电源。</p></header>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">01 / 09 · 第一轮精讲</span><p class="eyebrow">先建立单位和能量直觉</p><h1>电压、电流、功率与真实导线</h1><p class="learning-header__lead">机器人首先是一台会移动的电力系统。控制算法最终都要变成电流，而电流经过电阻会发热、经过电感不能瞬间变化，还必须沿真实导线回到电源。</p></header>
 <div class="post-content learning-article">
 <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>电压提供“推动电荷的势差”，电流是电荷流率；电机力矩主要受电流限制，最高转速主要受电压与反电动势限制，持续能力最终受热限制。</strong></p></div>
+<div class="learning-route"><span>画 source/load/return</span><b>→</b><span>算 V/I/R</span><b>→</b><span>算 power/energy</span><b>→</b><span>加入 C/L transient</span><b>→</b><span>加入 protection</span><b>→</b><span>限流上电</span></div>
+<figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>Battery</small><strong>DC source</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Fuse/contactor</small><strong>protection</strong></div><span class="process-arrow">→</span><div class="process-step"><small>DC bus</small><strong>C stores energy</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Inverter</small><strong>PWM switches</strong></div><span class="process-arrow">→</span><div class="process-step"><small>Motor</small><strong>R,L,back-EMF</strong></div></div><figcaption>任何电流都必须有完整回路；保护器件、导线和 connector 也在主功率路径中。</figcaption></figure>
 
 <h2>1. 四个最常见的量</h2>
 <table><thead><tr><th>量</th><th>单位</th><th>机器人里的直觉</th></tr></thead><tbody>
@@ -51,7 +53,7 @@
 E-stop / watchdog ──独立安全路径──→ disable torque / open contactor</code></pre>
 <p>预充电先通过电阻给母线电容充电，再闭合主接触器，避免插头打火和接触器焊死。BMS 保护电芯，但通常不能替代每条支路的保险丝、驱动器硬件过流和整机急停。</p>
 
-<div class="concept-callout"><strong>常见误解：</strong><p>电源标注“最大 20 A”不是它始终把 20 A 灌进负载。负载和控制器决定需要多少电流，电源只是必须在电压、瞬态和保护范围内提供它。</p></div>
+<h2>8. 四个基础电路手算</h2><div class="numeric-example"><p class="numeric-example__title">例 1：欧姆定律与铜损</p><p>24 V 加在 1.2 Ω 电阻上，I=<code>24/1.2=20 A</code>，power=<code>VI=480 W</code>（也等于 I²R）。这说明大电流会让很小电阻产生巨大热量。</p></div><div class="numeric-example"><p class="numeric-example__title">例 2：串并联等效</p><p>两个 6 Ω 串联为 12 Ω，接 24 V 总电流=2 A，每个分 12 V；两个 6 Ω 并联为 3 Ω，总电流=8 A，每支 4 A。拓扑改变电源看到的负载。</p></div><div class="numeric-example"><p class="numeric-example__title">例 3：母线电容能量</p><p>C=2000 μF=0.002 F，bus=48 V，储能 <code>E=CV²/2=0.5×0.002×48²=2.304 J</code>。若理想地释放 200 W，只够约 11.5 ms，且实际电压会下降。</p></div><div class="numeric-example"><p class="numeric-example__title">例 4：反电动势限制电流</p><p>Motor winding R=0.4 Ω，drive 施加 24 V。静止时 back-EMF=0，理想电流会趋向 60 A；高速时 back-EMF=20 V，稳态电流约 <code>(24−20)/0.4=10 A</code>。</p></div><div class="concept-callout"><strong>常见误解：</strong><p>电源标注“最大 20 A”不是它始终把 20 A 灌进负载。负载和控制器决定需要多少电流，电源只是必须在电压、瞬态和保护范围内提供它。</p></div>
 <section class="learning-check"><h3>自测</h3>
 <details><summary>1. 48 V 母线下一个驱动器输入 10 A，电功率一定是 480 W 吗？</summary><p>直流侧瞬时近似如此，但还要区分平均/峰值、驱动效率、三相相电流与 DC bus 电流；相电流 10 A 不等于母线电流 10 A。</p></details>
 <details><summary>2. 为什么拔掉高速旋转电机的电源不等于能量消失？</summary><p>转子和负载仍有动能，电机可能发电；能量必须被摩擦、制动电阻、电池或其他路径吸收。</p></details>
