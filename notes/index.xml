@@ -5,8 +5,15 @@
     <link>https://www.qingweiben.com/notes/</link>
     <description>Recent content in Blog on Qingwei Ben</description>
     <language>en-us</language>
-    <lastBuildDate>Sun, 30 Aug 2026 00:00:00 -0700</lastBuildDate>
+    <lastBuildDate>Mon, 31 Aug 2026 00:00:00 -0700</lastBuildDate>
     <atom:link href="https://www.qingweiben.com/notes/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>机器人仿真器、FEM 与 MPM</title>
+      <link>https://www.qingweiben.com/notes/robot-simulators/</link>
+      <pubDate>Mon, 31 Aug 2026 00:00:00 -0700</pubDate>
+      <guid>https://www.qingweiben.com/notes/robot-simulators/</guid>
+      <description>从 Isaac Sim、Newton 与 Genesis 的系统逻辑，深入到连续介质方程、FEM 弱形式、MPM 粒子—网格传输和具体数值计算。</description>
+    </item>
     <item>
       <title>具身 System 2、VLN 与 Language 注入</title>
       <link>https://www.qingweiben.com/notes/embodied-system2-vln/</link>
@@ -48,13 +55,6 @@
       <pubDate>Sat, 29 Aug 2026 00:00:00 -0700</pubDate>
       <guid>https://www.qingweiben.com/notes/robot-hardware/</guid>
       <description>从电压、电流和电机出发，逐层理解驱动器、伺服关节、传感器、底层总线、电源安全与整机选型。</description>
-    </item>
-    <item>
-      <title>机器人仿真器：Isaac Sim、Newton 与 Genesis</title>
-      <link>https://www.qingweiben.com/notes/robot-simulators/</link>
-      <pubDate>Sat, 29 Aug 2026 00:00:00 -0700</pubDate>
-      <guid>https://www.qingweiben.com/notes/robot-simulators/</guid>
-      <description>从统一仿真循环出发，拆解三套系统的物理、数据、渲染与学习接口，并建立可执行的选型和验证框架。</description>
     </item>
     <item>
       <title>具身操作模型：从数据到 VLM、VLA 与 WAM</title>

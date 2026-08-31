@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="从连续介质力学出发，推导 FEM 弱形式、MPM 的 P2G/G2P、PIC/FLIP/APIC、弹塑性本构，并用可手算数值例子理解节点内力与粒子时间步。">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
+    <link rel="stylesheet" href="/css/style.css">
+    <script>window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']]}};</script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <title>Qingwei Ben | FEM、MPM 与粒子仿真</title>
+</head>
+<body class="container d-flex flex-column min-vh-100">
+<main class="blog-shell">
+<nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
+<article class="post-shell">
+<header class="post-header learning-header">
+    <span class="draft-status">06 / 06 · 公式推导与手算</span>
+    <p class="eyebrow">同一套连续介质，怎样变成网格和粒子上的数字</p>
+    <h1>FEM、MPM 与粒子仿真：从连续方程到一个可手算的时间步</h1>
+    <p class="learning-header__lead">FEM、MPM、SPH、DEM 和 XPBD 都会在“软体/颗粒仿真”菜单里出现，但它们离散的对象并不相同。本文从质量、动量、形变梯度和本构关系出发，把 FEM 的弱形式与 MPM 的粒子—网格循环完整接起来，并用具体数字检查每个符号。</p>
+</header>
+<div class="post-content learning-article">
+
+<div class="key-takeaway"><h3>先记住三句话</h3><p><strong>FEM 不是粒子法：</strong>材料与拉格朗日网格绑定；<strong>MPM 是混合拉格朗日—欧拉法：</strong>粒子保存材料历史，临时背景网格计算力；<strong>“粒子”只是离散载体：</strong>SPH 粒子近似场，DEM 粒子代表真实颗粒，PBD/XPBD 粒子则由几何约束推进。</p></div>
+
+<div class="learning-route"><span>连续体</span><b>→</b><span>运动学 $F,J$</span><b>→</b><span>本构 $\sigma(F)$</span><b>→</b><span>空间离散</span><b>→</b><span>时间积分</span><b>→</b><span>接触与边界</span></div>
+
+<figure class="learning-figure"><div class="process-flow"><div class="process-step"><small>FEM</small><strong>material mesh</strong><span>节点 + 单元</span></div><span class="process-arrow">↔</span><div class="process-step"><small>MPM</small><strong>particles + scratch grid</strong><span>P2G → solve → G2P</span></div><span class="process-arrow">↔</span><div class="process-step"><small>SPH / DEM / XPBD</small><strong>particle interactions</strong><span>kernel / contact / constraint</span></div></div><figcaption>方法名不等于材料模型。FEM 和 MPM 都能配线弹性、Neo-Hookean 或弹塑性；“怎么离散”与“材料如何产生应力”是两个正交选择。</figcaption></figure>
+
+<h2>1. 先把四层概念分开</h2>
+<table><thead><tr><th>层</th><th>回答的问题</th><th>典型选择</th></tr></thead><tbody>
+<tr><td>连续体方程</td><td>质量和动量如何守恒？</td><td>$\rho\dot{\mathbf v}=\nabla\!\cdot\!\boldsymbol\sigma+\rho\mathbf b$</td></tr>
+<tr><td>本构模型</td><td>形变如何变成应力？</td><td>线弹性、corotated、Neo-Hookean、Drucker–Prager</td></tr>
+<tr><td>空间离散</td><td>无限自由度怎样变成有限数字？</td><td>FEM、MPM、SPH、finite volume</td></tr>
+<tr><td>时间与约束</td><td>状态怎样推进，碰撞怎样满足？</td><td>显式/隐式 Euler、Newmark、XPBD、IPC、penalty</td></tr>
+</tbody></table>
+<p>因此“MPM 比 FEM 更软”不是正确陈述。两者若使用同一本构、分辨率和积分精度，应逼近同一个连续问题；实际差异来自离散误差、接触、数值耗散和稳定性。</p>
+
+<h2>2. 连续介质运动学：$\mathbf F$ 是整篇文章的核心状态</h2>
+<p>给材料中的每一点一个不随运动改变的参考坐标 $\mathbf X$。运动映射 $\boldsymbol\phi$ 把它送到当前世界坐标：</p>
+<div class="formula-card">$$\mathbf x=\boldsymbol\phi(\mathbf X,t),\qquad \mathbf v(\mathbf x,t)=\frac{\partial\boldsymbol\phi}{\partial t}(\mathbf X,t).$$</div>
+<p>局部小线段满足 $d\mathbf x=\mathbf Fd\mathbf X$，其中</p>
+<div class="formula-card">$$\mathbf F=\frac{\partial\mathbf x}{\partial\mathbf X},\qquad J=\det\mathbf F,\qquad \rho J=\rho_0.$$</div>
+<ul>
+<li>$\mathbf F$ 同时包含旋转、拉伸和剪切；它不是应变，但本构通常以它为输入。</li>
+<li>$J$ 是当前体积与参考体积之比：$J=1$ 保体积，$J&lt;1$ 压缩，$J&gt;1$ 膨胀；$J\le 0$ 通常表示单元翻转或数值崩溃。</li>
+<li>速度梯度 $\mathbf L=\nabla_{\mathbf x}\mathbf v$ 给出 $\dot{\mathbf F}=\mathbf L\mathbf F$，显式一步常写成 $\mathbf F^{n+1}=(\mathbf I+\Delta t\,\mathbf L^n)\mathbf F^n$。</li>
+</ul>
+
+<h2>3. 动量方程、边界条件和应力度量</h2>
+<p>当前构形中的局部动量平衡为</p>
+<div class="formula-card">$$\rho\frac{D\mathbf v}{Dt}=\nabla_{\mathbf x}\cdot\boldsymbol\sigma+\rho\mathbf b,$$</div>
+<p>其中 $\boldsymbol\sigma$ 是 Cauchy 应力，$\mathbf b$ 是单位质量体力。位移边界给 $\mathbf u=\bar{\mathbf u}$，力边界给 $\boldsymbol\sigma\mathbf n=\bar{\mathbf t}$。在参考构形中常用第一 Piola–Kirchhoff 应力</p>
+<div class="formula-card">$$\mathbf P=J\boldsymbol\sigma\mathbf F^{-T},\qquad \boldsymbol\sigma=\frac{1}{J}\mathbf P\mathbf F^T.$$</div>
+<p>这两个应力不能随意混用：$\mathbf P$ 与参考面积、$\nabla_{\mathbf X}$ 配对，$\boldsymbol\sigma$ 与当前面积、$\nabla_{\mathbf x}$ 配对。</p>
+
+<h2>4. 本构模型：同一个 $\mathbf F$ 为什么能像橡胶、雪或沙</h2>
+<h3>4.1 从 $E,\nu$ 到 Lamé 参数</h3>
+<div class="formula-card">$$\mu=\frac{E}{2(1+\nu)},\qquad \lambda=\frac{E\nu}{(1+\nu)(1-2\nu)}.$$</div>
+<p>$E$ 控制拉伸刚度，$\nu$ 控制横向收缩；三维各向同性材料中 $\nu\to0.5$ 接近不可压缩，此时 $\lambda\to\infty$，显式步长更小，低阶位移 FEM 还可能出现 volumetric locking。</p>
+
+<h3>4.2 小形变线弹性</h3>
+<div class="formula-card">$$\boldsymbol\varepsilon=\tfrac12(\nabla\mathbf u+\nabla\mathbf u^T),\qquad \boldsymbol\sigma=\lambda\operatorname{tr}(\boldsymbol\varepsilon)\mathbf I+2\mu\boldsymbol\varepsilon.$$</div>
+<p>它只对小应变、小旋转可靠。一个刚体旋转也会被线性应变误判为形变，因此软体大转动通常用 corotated 或超弹性模型。</p>
+
+<h3>4.3 超弹性：能量先于力</h3>
+<p>超弹性从单位参考体积的能量 $\psi(\mathbf F)$ 出发，$\mathbf P=\partial\psi/\partial\mathbf F$。可压缩 Neo-Hookean 的常见形式是</p>
+<div class="formula-card">$$\psi=\frac{\mu}{2}\big(\operatorname{tr}(\mathbf F^T\mathbf F)-d\big)-\mu\ln J+\frac{\lambda}{2}(\ln J)^2.$$</div>
+<p>fixed-corotated 先做极分解 $\mathbf F=\mathbf R\mathbf S$，用最近旋转 $\mathbf R$ 去掉刚体旋转：</p>
+<div class="formula-card">$$\psi=\mu\lVert\mathbf F-\mathbf R\rVert_F^2+\frac{\lambda}{2}(J-1)^2,\qquad \mathbf P=2\mu(\mathbf F-\mathbf R)+\lambda(J-1)J\mathbf F^{-T}.$$</div>
+
+<h3>4.4 塑性：把形变拆成可恢复与永久部分</h3>
+<div class="formula-card">$$\mathbf F=\mathbf F_e\mathbf F_p.$$</div>
+<p>弹性能只读 $\mathbf F_e$。一次典型 return mapping 是：先由速度梯度得到 trial $\mathbf F_e$，再做 SVD，把主伸长或试应力投影回 yield surface，超出的部分写进 $\mathbf F_p$。von Mises 限制偏应力，适合延性金属；Drucker–Prager 的屈服随压力变化，常用于沙土；雪模型会在压实时 hardening。这里的“粒子”价值很明显：$\mathbf F_p$、硬化量等历史变量一直跟着材料点走。</p>
+
+<h2>5. FEM：从强形式到可组装的矩阵</h2>
+<p>直接要求微分方程在每一点成立称为强形式。FEM 乘测试函数 $\mathbf w$ 并分部积分，把应力的空间导数转移到测试函数：</p>
+<div class="formula-card">$$\int_{\Omega_0}\rho_0\mathbf w\cdot\ddot{\mathbf u}\,dV+\int_{\Omega_0}\nabla_{\mathbf X}\mathbf w:\mathbf P\,dV=\int_{\Omega_0}\rho_0\mathbf w\cdot\mathbf b\,dV+\int_{\Gamma_t}\mathbf w\cdot\bar{\mathbf t}_0\,dA.$$</div>
+<p>在单元内用形函数插值 $\mathbf u_h=\sum_aN_a\mathbf q_a$，得到半离散系统</p>
+<div class="formula-card">$$\mathbf M\ddot{\mathbf q}+\mathbf f_{\mathrm{int}}(\mathbf q)=\mathbf f_{\mathrm{ext}},\qquad \mathbf f_{\mathrm{int}}^e=\int_{\Omega_0^e}\mathbf B^T\boldsymbol\sigma\,dV.$$</div>
+<p>线弹性时 $\boldsymbol\sigma=\mathbf D\mathbf B\mathbf q$，于是 $\mathbf K^e=\int\mathbf B^T\mathbf D\mathbf B,dV$。非线性 FEM 不再只有一个恒定 $\mathbf K$，而是在 Newton 迭代中重复计算 residual 和 tangent。</p>
+
+<h2>6. FEM 手算：一个二维三角形从位移到节点力</h2>
+<div class="numeric-example"><p class="numeric-example__title">题目</p><p>平面应力、厚度 $t=0.1$ m 的常应变三角形，节点为 $(0,0),(1,0),(0,1)$ m，面积 $A=0.5$ m²。材料 $E=1000$ Pa、$\nu=0.3$。节点自由度按 $[u_1,v_1,u_2,v_2,u_3,v_3]^T$ 排列，给定位移 $\mathbf q=[0,0,0.01,0,0,0.02]^T$ m。</p></div>
+<p>形函数 $N_1=1-x-y,N_2=x,N_3=y$，工程剪应变采用 $\gamma_{xy}$，所以</p>
+<div class="formula-card">$$\mathbf B=\begin{bmatrix}-1&amp;0&amp;1&amp;0&amp;0&amp;0\\0&amp;-1&amp;0&amp;0&amp;0&amp;1\\-1&amp;-1&amp;0&amp;1&amp;1&amp;0\end{bmatrix},\qquad
+\mathbf D=\frac{E}{1-\nu^2}\begin{bmatrix}1&amp;\nu&amp;0\\\nu&amp;1&amp;0\\0&amp;0&amp;\frac{1-\nu}{2}\end{bmatrix}.$$</div>
+<p>代入数值：</p>
+<div class="formula-card">$$\mathbf D=\begin{bmatrix}1098.901&amp;329.670&amp;0\\329.670&amp;1098.901&amp;0\\0&amp;0&amp;384.615\end{bmatrix}\ \mathrm{Pa},$$
+$$\boldsymbol\varepsilon=\mathbf B\mathbf q=\begin{bmatrix}0.01\\0.02\\0\end{bmatrix},\qquad
+\boldsymbol\sigma=\mathbf D\boldsymbol\varepsilon=\begin{bmatrix}17.582\\25.275\\0\end{bmatrix}\ \mathrm{Pa}.$$</div>
+<p>因为这个单元的 $\mathbf B$ 和应力为常数，积分直接变成乘 $tA=0.05$：</p>
+<div class="formula-card">$$\mathbf f_{\mathrm{int}}=tA\mathbf B^T\boldsymbol\sigma=
+\begin{bmatrix}-0.8791\\-1.2637\\0.8791\\0\\0\\1.2637\end{bmatrix}\ \mathrm N.$$</div>
+<p>三个节点的 $x$ 力之和、$y$ 力之和都为 0，说明内力满足整体平移平衡。单元刚度为</p>
+<div class="formula-card">$$\mathbf K^e=tA\mathbf B^T\mathbf D\mathbf B\approx
+\begin{bmatrix}
+74.176&amp;35.714&amp;-54.945&amp;-19.231&amp;-19.231&amp;-16.484\\
+35.714&amp;74.176&amp;-16.484&amp;-19.231&amp;-19.231&amp;-54.945\\
+-54.945&amp;-16.484&amp;54.945&amp;0&amp;0&amp;16.484\\
+-19.231&amp;-19.231&amp;0&amp;19.231&amp;19.231&amp;0\\
+-19.231&amp;-19.231&amp;0&amp;19.231&amp;19.231&amp;0\\
+-16.484&amp;-54.945&amp;16.484&amp;0&amp;0&amp;54.945
+\end{bmatrix}\ \mathrm{N/m}.$$</div>
+<p>未施加边界条件前 $\mathbf K^e$ 必须是奇异的，因为刚体平移和旋转不产生应变。若代码组装后它反而满秩，通常是 $\mathbf B$、自由度顺序或边界处理出了问题。</p>
+
+<h2>7. FEM 怎样推进时间</h2>
+<table><thead><tr><th>方式</th><th>一步的核心</th><th>代价与适用</th></tr></thead><tbody>
+<tr><td>显式 central difference / symplectic Euler</td><td>lumped $\mathbf M$ 后直接算 $\mathbf a=\mathbf M^{-1}(\mathbf f_{ext}-\mathbf f_{int})$</td><td>每步便宜、GPU 友好；受 CFL 限制</td></tr>
+<tr><td>隐式 backward Euler / Newmark</td><td>求 $\mathbf r(\mathbf q^{n+1})=0$，Newton 解 $\mathbf K_{tan}\Delta\mathbf q=-\mathbf r$</td><td>每步贵但可用更大步长；接触和非线性仍可能难收敛</td></tr>
+<tr><td>quasi-static</td><td>忽略惯性，求 $\mathbf f_{int}=\mathbf f_{ext}$</td><td>慢加载结构，不代表真实瞬态</td></tr>
+</tbody></table>
+<p>弹性波速量级 $c_p\approx\sqrt{(\lambda+2\mu)/\rho}$，显式稳定步长约</p>
+<div class="formula-card">$$\Delta t\le C_{\mathrm{CFL}}\frac{h_{\min}}{c_p}.$$</div>
+<p>网格更细、材料更硬或密度更低都会迫使 $\Delta t$ 变小。substep 不是“白赚精度”，而是在支付稳定性成本。</p>
+
+<h2>8. MPM：粒子记历史，网格只活一个时间步</h2>
+<p>粒子 $p$ 通常保存 $m_p,\mathbf x_p,\mathbf v_p,V_p^0,\mathbf F_p$、仿射速度 $\mathbf C_p$ 和塑性变量。网格节点 $i$ 只保存本步质量、动量和力；下一步先清零，因此不会随材料变形而缠结。</p>
+
+<h3>8.1 P2G：把粒子质量和动量散射到网格</h3>
+<p>令 $w_{ip}=N_i(\mathbf x_p)$，$\nabla w_{ip}=\nabla N_i(\mathbf x_p)$：</p>
+<div class="formula-card">$$m_i=\sum_p w_{ip}m_p,$$
+$$\mathbf p_i=\sum_p w_{ip}m_p\left[\mathbf v_p+\mathbf C_p(\mathbf x_i-\mathbf x_p)\right].$$</div>
+<p>$\mathbf C_p=0$ 就是 PIC 的常值粒子速度；APIC 用局部仿射场保存旋转和剪切信息。当前构形下，粒子应力产生的节点内力为</p>
+<div class="formula-card">$$\mathbf f_i^{\mathrm{int}}=-\sum_p V_p\boldsymbol\sigma_p\nabla w_{ip},\qquad V_p=J_pV_p^0.$$</div>
+
+<h3>8.2 Grid solve：在规则网格上算力、碰撞和边界</h3>
+<div class="formula-card">$$\mathbf v_i^n=\frac{\mathbf p_i^n}{m_i},\qquad \mathbf v_i^*=\mathbf v_i^n+\Delta t\frac{\mathbf f_i^{\mathrm{int}}+\mathbf f_i^{\mathrm{ext}}}{m_i}.$$</div>
+<p>随后把地面、刚体或域边界条件施加到 $\mathbf v_i^*$。这一步是 MPM 易于处理大形变、自接触和拓扑变化的关键：不同粒子可以共享网格动量，不需要维护永久扭曲的材料网格。</p>
+
+<h3>8.3 G2P：把更新后的网格速度带回粒子</h3>
+<div class="formula-card">$$\mathbf v_p^{PIC}=\sum_iw_{ip}\mathbf v_i^*,$$
+$$\mathbf v_p^{FLIP}=\mathbf v_p^n+\sum_iw_{ip}(\mathbf v_i^*-\mathbf v_i^n).$$</div>
+<p>PIC 覆盖粒子速度，会滤掉网格无法表示的模式，因此稳定但耗散；FLIP 只加网格速度增量，耗散小但会保留 grid 看不见的噪声。工程中常做 $\mathbf v_p=(1-\alpha)\mathbf v_p^{PIC}+\alpha\mathbf v_p^{FLIP}$。APIC 则更新</p>
+<div class="formula-card">$$\mathbf D_p=\sum_iw_{ip}(\mathbf x_i-\mathbf x_p)(\mathbf x_i-\mathbf x_p)^T,$$
+$$\mathbf C_p^{n+1}=\left[\sum_iw_{ip}\mathbf v_i^*(\mathbf x_i-\mathbf x_p)^T\right]\mathbf D_p^{-1}.$$</div>
+<p>最后推进位置与形变：</p>
+<div class="formula-card">$$\mathbf x_p^{n+1}=\mathbf x_p^n+\Delta t\,\mathbf v_p^{n+1},$$
+$$\mathbf L_p=\sum_i\mathbf v_i^*(\nabla w_{ip})^T,\qquad \mathbf F_p^{n+1}=(\mathbf I+\Delta t\,\mathbf L_p)\mathbf F_p^n.$$</div>
+<p>之后做塑性投影并由新 $\mathbf F_e$ 计算下一步应力。不同实现可能交换 stress update 与 transfer 的具体时序，但必须保持使用的是同一时间层。</p>
+
+<h3>8.4 权重并非“离粒子最近就给它”</h3>
+<p>一维均匀网格上，令 <code>base=floor(xp/h-0.5)</code>、$f=x_p/h-\mathrm{base}$，二次 B-spline 的三个权重可写成</p>
+<div class="formula-card">$$w_0=\tfrac12(1.5-f)^2,\quad w_1=0.75-(f-1)^2,\quad w_2=\tfrac12(f-0.5)^2.$$</div>
+<p>多维权重是各维权重的张量积。分片线性 hat function 更容易手算，但梯度在 cell boundary 不连续，粒子穿越网格时容易出现应力噪声；B-spline、GIMP、CPDI 和 MLS-MPM 都在改善这类 grid-crossing artifacts。</p>
+
+<h2>9. MPM 手算 A：两粒子看懂 PIC 为什么耗散</h2>
+<div class="numeric-example"><p class="numeric-example__title">无力的一维 transfer 测试</p><p>网格节点 $x=[0,0.5,1]$ m；两个质量均为 1 kg 的粒子位于 $0.25,0.75$ m，速度分别为 $+1,-1$ m/s。使用线性权重，各粒子向相邻两节点贡献 $0.5$。</p></div>
+<p>P2G 后：</p>
+<div class="formula-card">$$\mathbf m=[0.5,1,0.5]\ \mathrm{kg},\qquad \mathbf p=[0.5,0,-0.5]\ \mathrm{kg\,m/s},$$
+$$\mathbf v_{grid}=[1,0,-1]\ \mathrm{m/s}.$$</div>
+<p>没有力，所以 grid update 前后速度相同。PIC 插值回粒子：</p>
+<div class="formula-card">$$v_1^{PIC}=0.5(1)+0.5(0)=0.5,\qquad v_2^{PIC}=0.5(0)+0.5(-1)=-0.5.$$</div>
+<p>粒子动能从 $1$ J 降到 $0.25$ J；丢失的反向高速模式在网格中无法表示。FLIP 使用网格增量，而本例增量为 0，所以仍得到 $[1,-1]$ m/s，动能不变；这也解释了它为什么更容易把未解析噪声一直留在粒子上。</p>
+
+<h2>10. MPM 手算 B：一次应力散射与 $F$ 更新</h2>
+<div class="numeric-example"><p class="numeric-example__title">一个可做单元测试的一维弹性步</p><p>节点 $x_0=0,x_1=0.5$ m，粒子在 $x_p=0.25$ m，$m_p=1$ kg、$V_p=0.1$ m³、初速度 0。线性权重 $w=[0.5,0.5]$，梯度 $\nabla w=[-2,+2]$ m⁻¹。设小应变 $\varepsilon=0.01$、$E=10{,}000$ Pa，因此本步粒子拉应力 $\sigma=E\varepsilon=100$ Pa。</p></div>
+<p>首先散射质量：$m_0=m_1=0.5$ kg。内力是</p>
+<div class="formula-card">$$f_0^{int}=-V\sigma\nabla w_0=-0.1(100)(-2)=+20\ \mathrm N,$$
+$$f_1^{int}=-V\sigma\nabla w_1=-0.1(100)(+2)=-20\ \mathrm N.$$</div>
+<p>左右节点互相拉近，符号与受拉材料恢复原长的直觉一致；总内力为 0。于是 $a=[+40,-40]$ m/s²。取 $\Delta t=0.01$ s，网格速度更新为 $[+0.4,-0.4]$ m/s。</p>
+<p>PIC 回传速度为 $v_p=0.5(0.4)+0.5(-0.4)=0$，所以质心不动；但局部速度梯度不为 0：</p>
+<div class="formula-card">$$L_p=0.4(-2)+(-0.4)(+2)=-1.6\ \mathrm{s^{-1}},$$
+$$F_p^{n+1}=(1+\Delta tL_p)F_p^n=0.984F_p^n.$$</div>
+<p>也就是说粒子位置可以暂时不动，但它代表的材料体积在收缩。这个小例子特别适合查四类 bug：内力负号、shape gradient 单位、lumped mass 除法以及 $\mathbf v\otimes\nabla w$ 的转置。</p>
+
+<h2>11. APIC 与 MLS-MPM 到底改了什么</h2>
+<p>APIC 不把粒子附近速度看成常数，而是 $\mathbf v(\mathbf x)=\mathbf v_p+\mathbf C_p(\mathbf x-\mathbf x_p)$。因此刚体旋转和线性剪切不必在每次 transfer 中消失，粒子—网格往返还能守恒线动量与角动量。MLS-MPM 从 moving least squares / Galerkin 视角重新推导 transfer，使 APIC/PolyPIC 与弱形式离散进入同一框架，并能把应力项直接并入 affine momentum transfer。</p>
+<p>这不意味着“MLS-MPM 永远最好”。核函数、边界、接触、plastic projection、粒子密度和时间积分仍决定最终稳定性与精度。</p>
+
+<h2>12. FEM 与 MPM 的真正取舍</h2>
+<table><thead><tr><th>维度</th><th>FEM</th><th>MPM</th></tr></thead><tbody>
+<tr><td>材料表示</td><td>节点和单元随材料运动</td><td>粒子随材料运动，背景网格每步重置</td></tr>
+<tr><td>优势场景</td><td>结构、软体、精确边界、高阶形函数、成熟隐式求解</td><td>大形变、破坏、雪/沙、材料混合、复杂接触</td></tr>
+<tr><td>主要误差</td><td>mesh distortion、locking、单元翻转、接触离散</td><td>grid crossing、transfer 耗散/噪声、cell quadrature、边界欠采样</td></tr>
+<tr><td>边界几何</td><td>网格边界清晰，Neumann/Dirichlet 自然</td><td>粒子云边界模糊，traction 与薄结构更难</td></tr>
+<tr><td>拓扑变化</td><td>通常需 remesh、断裂模型或 enrichment</td><td>粒子天然分离，但“数值分离”不自动等于正确断裂力学</td></tr>
+<tr><td>计算结构</td><td>sparse element assembly / matrix-free</td><td>稀疏活跃网格 + scatter/gather，原子操作与排序重要</td></tr>
+</tbody></table>
+
+<h2>13. “之类的粒子法”分别在算什么</h2>
+<h3>13.1 SPH：用核函数从邻居重建连续场</h3>
+<div class="formula-card">$$\rho_i=\sum_jm_jW(\mathbf x_i-\mathbf x_j,h),$$
+$$\frac{d\mathbf v_i}{dt}=-\sum_jm_j\left(\frac{p_i}{\rho_i^2}+\frac{p_j}{\rho_j^2}\right)\nabla W_{ij}+\mathbf f_i^{visc}+\mathbf b.$$</div>
+<p>它是真正 mesh-free，擅长自由表面流体；代价是邻域搜索、压力噪声、边界缺邻居和不可压缩性。粒子代表的是场的采样，不必是一颗真实沙粒。</p>
+
+<h3>13.2 DEM：每颗粒子就是一个物理颗粒</h3>
+<div class="formula-card">$$m_i\ddot{\mathbf x}_i=\sum_{j\in\mathcal C_i}(\mathbf f_{ij}^n+\mathbf f_{ij}^t)+m_i\mathbf g,$$
+$$\mathbf f_{ij}^n\approx k_n\delta_n\mathbf n-c_n(\mathbf v_{ij}\cdot\mathbf n)\mathbf n,\qquad \lVert\mathbf f_{ij}^t\rVert\le\mu\lVert\mathbf f_{ij}^n\rVert.$$</div>
+<p>DEM 逐接触解球、块体或颗粒的 Newton–Euler 方程，适合颗粒尺度问题；如果一亿粒沙必须一粒一粒表示，成本会远高于把沙当连续体的 MPM。</p>
+
+<h3>13.3 PBD / XPBD：直接修正位置满足约束</h3>
+<p>对约束 $C(\mathbf x)=0$，XPBD 的一次标量约束更新可写为</p>
+<div class="formula-card">$$\Delta\lambda=\frac{-C(\mathbf x)-\tilde\alpha\lambda}{\sum_iw_i\lVert\nabla_iC\rVert^2+\tilde\alpha},\qquad \Delta\mathbf x_i=w_i\nabla_iC\,\Delta\lambda,$$
+$$\tilde\alpha=\frac{\text{compliance}}{\Delta t^2}.$$</div>
+<p>它以鲁棒、快速和可控外观见长；compliance 让刚度比传统 PBD 更少依赖步长和迭代数，但这仍不代表任意约束资产都等价于经过验证的连续体材料。</p>
+
+<h2>14. 选择方法时不要只看“软体还是颗粒”</h2>
+<table><thead><tr><th>任务</th><th>优先起点</th><th>为什么</th></tr></thead><tbody>
+<tr><td>机械结构、软体夹爪小到中等形变</td><td>FEM</td><td>边界、材料标定、隐式求解与应力分析成熟</td></tr>
+<tr><td>雪、沙、泥、切割、巨大形变</td><td>MPM</td><td>粒子保材料历史，网格避免永久畸变</td></tr>
+<tr><td>自由表面液体、飞溅</td><td>SPH / FLIP / MPM-liquid</td><td>按压力精度、自由表面和耦合需求选</td></tr>
+<tr><td>真实颗粒尺寸和接触链重要</td><td>DEM</td><td>每颗粒的碰撞、摩擦和转动都有明确意义</td></tr>
+<tr><td>实时布料、绳索、视觉次级运动</td><td>XPBD</td><td>大步长下鲁棒，约束设计直观</td></tr>
+</tbody></table>
+
+<h2>15. 数值仿真该报告哪些指标</h2>
+<ul>
+<li><strong>收敛：</strong>把 $h$、粒子间距与 $\Delta t$ 减半，位移、应力、接触力是否趋于稳定。</li>
+<li><strong>守恒：</strong>无外力时总线动量/角动量；保守系统中能量漂移与算法耗散。</li>
+<li><strong>可行性：</strong>最小 $J$、翻转单元数、负质量节点、粒子逃逸、接触穿透。</li>
+<li><strong>离散质量：</strong>FEM 看 element aspect ratio/Jacobian；MPM 看 particles per cell、活跃 cell 和每粒子 support。</li>
+<li><strong>稳定成本：</strong>实际 $\Delta t$、substeps、Newton 迭代数、linear solve residual，而不只是 frames/s。</li>
+<li><strong>物理校准：</strong>用拉伸、压缩、剪切、回弹、堆积角和接触实验分别辨识参数，不要靠一个 demo 同时猜 $E,\nu,\mu$ 和 damping。</li>
+</ul>
+
+<h2>16. 一份最小 MPM 伪代码</h2>
+<pre><code>for each step:
+    clear(grid.mass, grid.momentum, grid.force)
+
+    for p in particles:                    # P2G
+        stress[p] = constitutive(F_e[p], history[p])
+        for i in support(x[p]):
+            grid.mass[i]     += w(i,p) * mass[p]
+            grid.momentum[i] += w(i,p) * mass[p] * (
+                velocity[p] + C[p] @ (x_grid[i] - x[p]))
+            grid.force[i]    -= volume[p] * stress[p] @ grad_w(i,p)
+
+    for i in active_grid:
+        v_old[i] = grid.momentum[i] / grid.mass[i]
+        v_new[i] = v_old[i] + dt * (grid.force[i] / grid.mass[i] + gravity)
+        v_new[i] = apply_collision_and_boundary(v_new[i])
+
+    for p in particles:                    # G2P
+        velocity[p] = interpolate_or_flip(v_new, v_old)
+        C[p]        = reconstruct_affine_velocity(v_new)
+        grad_v      = sum_i outer(v_new[i], grad_w(i,p))
+        x[p]       += dt * velocity[p]
+        F_trial     = (I + dt * grad_v) @ F[p]
+        F[p], history[p] = plastic_return_map(F_trial, history[p])</code></pre>
+<p>真正实现时还要处理 active-grid 稀疏化、atomic scatter、粒子排序、边界核截断、接触多材料速度场、塑性 SVD、autodiff checkpoint 和确定性。公式正确只是第一步。</p>
+
+<div class="concept-callout"><strong>最重要的工程判断：</strong><p>先写清你要逼近的连续方程与材料实验，再选 FEM/MPM/SPH；不要从“引擎里有一个 snow preset”反推物理。一个视觉上像雪的结果，可能在质量、接触力、屈服和尺度变化上完全错误。</p></div>
+
+<section class="learning-check"><h3>自测</h3>
+<details><summary>1. MPM 的粒子为什么不会像 DEM 一样逐粒碰撞？</summary><p>MPM 粒子是连续材料的积分点，通常通过共享背景网格交换动量和产生连续体应力；DEM 粒子则代表离散实体，显式建立粒子—粒子接触。</p></details>
+<details><summary>2. MPM 粒子用 PIC 回传后位置没动，为什么形变仍可能变化？</summary><p>质心速度由速度插值得到，而形变由局部速度梯度更新；一个对称收缩场的中心速度为零，但梯度不为零。</p></details>
+<details><summary>3. 为什么 FEM 单元刚度在没有边界条件时应当奇异？</summary><p>刚体平移和旋转不产生应变与弹性能，它们是刚度矩阵的零空间；约束足够的自由度后系统才可解。</p></details>
+<details><summary>4. 增加 MPM 粒子数是否总能提高精度？</summary><p>不能。粒子改善积分采样，但网格分辨率、核函数、时间步、边界和本构误差仍可能主导；还可能增加 scatter contention 和成本。</p></details>
+</section>
+
+<div class="source-list"><h3>一手资料与实现对照</h3><p><a href="https://digital.library.unt.edu/ark:/67531/metadc1385575/m1/1/">Sulsky、Chen 与 Schreyer：MPM 原始报告</a>解释了用材料点追踪历史、用固定网格求梯度的动机；<a href="https://math.ucdavis.edu/~jteran/papers/JST17.pdf">APIC 论文</a>推导 PIC、FLIP 与 affine transfer；<a href="https://www.seas.upenn.edu/~ziyinq/static/files/mlsmpm.pdf">MLS-MPM 论文</a>从 moving least squares 与弱形式统一粒子—网格离散；<a href="https://www.andyselle.com/papers/21/">MPM Snow</a>展示弹塑性雪模型；<a href="https://mmacklin.com/xpbd.pdf">XPBD</a>给出 compliance 与约束更新；<a href="https://doi.org/10.1680/geot.1979.29.1.47">Cundall–Strack DEM</a>是逐颗粒接触动力学的经典起点；<a href="https://genesis-world.readthedocs.io/en/latest/user_guide/theory/soft_solvers.html">Genesis World soft-solver 文档</a>可用于对照实际 FEM、MPM、SPH 与 PBD 材料接口。</p></div>
+
+<nav class="article-series-nav"><a href="/notes/robot-simulators/05-comparison-and-workflows/">← 上一篇：比较与工作流</a><a href="/notes/robot-simulators/">回到系列目录 →</a></nav>
+</div>
+</article>
+</main>
+<footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
+</body>
+</html>
