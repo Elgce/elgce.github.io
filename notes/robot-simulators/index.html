@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="从仿真循环出发，理解 Isaac Sim、Newton 与 Genesis World 的核心架构、物理求解器和机器人学习工作流。">
+    <meta name="description" content="从仿真循环出发，理解 Isaac Sim、Newton、Genesis World，以及 FEM、MPM 与粒子仿真的核心公式和数值计算。">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.5.3/dist/css/bootstrap.min.css" integrity="sha384-TX8t27EcRE3e/ihU7zmQxVncDAy5uIKz4rEkgIXeMed4M0jlfIDPvg6uqKI2xXr2" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+Pro:wght@400;600;700&amp;family=Inter:wght@400;500;600&amp;family=Ubuntu+Mono:wght@400;700&amp;display=swap">
     <link rel="stylesheet" href="/css/style.css">
@@ -17,10 +17,10 @@
     </nav>
     <header class="blog-hero learning-header">
         <span class="draft-status">Learning series · first draft</span>
-        <p class="eyebrow">5 notes / physics loop → platform choice</p>
+        <p class="eyebrow">6 notes / physics loop → platform choice → continuum numerics</p>
         <h1>机器人仿真器</h1>
-        <p class="learning-header__lead">从一次 <code>step()</code> 里真正发生的事情出发，逐层理解 Isaac Sim、Newton 与 Genesis World。目标不是记功能清单，而是能判断它们分别在哪一层、怎样推进物理、数据如何流动，以及一个机器人实验该选哪条工作流。</p>
-        <div class="series-progress"><span><strong>5</strong> 篇独立文章</span><span><strong>3</strong> 套系统</span><span>资料快照：<strong>2026-08-29</strong></span></div>
+        <p class="learning-header__lead">从一次 <code>step()</code> 里真正发生的事情出发，逐层理解 Isaac Sim、Newton 与 Genesis World，再深入 FEM、MPM 和粒子法怎样把连续方程变成数值更新。目标不是记功能清单，而是能判断系统层级、物理误差与实验工作流。</p>
+        <div class="series-progress"><span><strong>6</strong> 篇独立文章</span><span><strong>3</strong> 套系统</span><span>资料快照：<strong>2026-08-31</strong></span></div>
     </header>
 
     <section class="series-grid" aria-label="Robot simulator learning series">
@@ -34,6 +34,9 @@
 
         <p class="series-part-label">Part III · 把选择变成可验证的实验</p>
         <a class="series-card" href="/notes/robot-simulators/05-comparison-and-workflows/"><div class="series-card__top"><span class="series-card__number">05</span><span>选择与验证</span></div><h2>怎样比较、选型与做 sim-to-sim</h2><p>统一比较三者的层级、物理、数据、渲染、并行和成熟度，并给出可复现的迁移清单。</p></a>
+
+        <p class="series-part-label">Part IV · 深入连续体与粒子数值方法</p>
+        <a class="series-card" href="/notes/robot-simulators/06-fem-mpm-particle-methods/"><div class="series-card__top"><span class="series-card__number">06</span><span>公式与手算</span></div><h2>FEM、MPM 与粒子仿真</h2><p>从连续介质方程推到 FEM 弱形式与 MPM 的 P2G/G2P，并手算三角形单元、PIC/FLIP 和一次粒子应力时间步。</p></a>
     </section>
     <div class="concept-callout"><strong>先避免一个常见误区：</strong><p>Isaac Sim 是含场景、物理、渲染、传感器和数据生成的完整平台；Newton 首先是物理引擎；Genesis World 又是一套独立仿真平台。把三者只按“谁 FPS 更高”排成一列，会比较错对象。</p></div>
 </main>

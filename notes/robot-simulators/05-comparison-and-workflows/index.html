@@ -13,7 +13,7 @@
 <body class="container d-flex flex-column min-vh-100">
 <main class="blog-shell">
 <nav class="home-nav blog-topbar"><a class="home-mark" href="/">Qingwei Ben</a><div class="home-nav__links"><a href="/notes/robot-simulators/">Series</a><a href="/notes/">All Posts</a></div></nav>
-<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 05 · 第一轮精讲</span><p class="eyebrow">从功能表回到可证伪实验</p><h1>怎样比较、选型与做 sim-to-sim</h1><p class="learning-header__lead">选仿真系统不是寻找一个全局冠军，而是决定哪些层必须成熟、哪些可以替换、哪些误差会主导你的任务。真正公平的比较，要把资产、执行器、时钟、观测和成功指标全部固定。</p></header>
+<article class="post-shell"><header class="post-header learning-header"><span class="draft-status">05 / 06 · 第一轮精讲</span><p class="eyebrow">从功能表回到可证伪实验</p><h1>怎样比较、选型与做 sim-to-sim</h1><p class="learning-header__lead">选仿真系统不是寻找一个全局冠军，而是决定哪些层必须成熟、哪些可以替换、哪些误差会主导你的任务。真正公平的比较，要把资产、执行器、时钟、观测和成功指标全部固定。</p></header>
 <div class="post-content learning-article">
 <div class="key-takeaway"><h3>先记住一句话</h3><p><strong>先按层级拆系统，再按任务验证：Isaac Sim 强在完整数字孪生与感知栈，Newton 强在可插拔 GPU 物理和 robot-learning backend，Genesis World 强在独立 Pythonic 多物理平台。</strong></p></div>
 <div class="learning-route"><span>定义关键现象</span><b>→</b><span>冻结资产与控制</span><b>→</b><span>逐层对齐</span><b>→</b><span>小机制 benchmark</span><b>→</b><span>闭环 sim-to-sim</span><b>→</b><span>真实校准</span></div>
@@ -104,7 +104,7 @@ compare:
 <details><summary>3. 一个 policy 在三个 simulator 都成功，是否证明能上真机？</summary><p>不能。三者可能共享同类错误假设；真实 actuator、contact、sensor、latency 和环境分布仍需真机验证。</p></details>
 </section>
 <div class="source-list"><h3>一手资料</h3><p><a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/physics/index.html">Isaac Sim Physics</a>、<a href="https://newton-physics.github.io/newton/latest/faq.html">Newton FAQ</a> 与 <a href="https://github.com/Genesis-Embodied-AI/genesis-world">Genesis World</a> 定义各自层级；<a href="https://isaac-sim.github.io/IsaacLab/develop/source/overview/core-concepts/physical-backends/newton/supported-features.html">Isaac Lab Supported Features</a> 展示当前 multi-backend 边界；所有版本与能力判断以 2026-08-29 官方资料快照为准。</p></div>
-<nav class="article-series-nav"><a href="/notes/robot-simulators/04-genesis-core/">← 上一篇：Genesis World</a><a href="/notes/robot-simulators/">回到系列目录 →</a></nav>
+<nav class="article-series-nav"><a href="/notes/robot-simulators/04-genesis-core/">← 上一篇：Genesis World</a><a href="/notes/robot-simulators/06-fem-mpm-particle-methods/">下一篇：FEM 与 MPM →</a></nav>
 </div></article>
 </main>
 <footer class="mt-auto d-flex justify-content-center text-muted small secondary_font"><span>Copyright (c) 2026, Qingwei Ben</span></footer>
